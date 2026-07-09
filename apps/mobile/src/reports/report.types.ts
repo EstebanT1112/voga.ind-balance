@@ -30,3 +30,18 @@ export interface ReportSummary {
     commissionAmount: number;
   }>;
 }
+
+export interface ApiProfile {
+  id: string;
+  role: "owner" | "seller";
+  fullName: string;
+  color: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsersResponse {
+  items: ApiProfile[];
+  next: string | null;
+}
