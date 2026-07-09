@@ -8,5 +8,5 @@
       "@voga/shared": ["../../packages/shared/src/index.ts"]
     }
   },
-  "include": ["app", "src"]
+  "include": ["App.tsx", "src"]
 }
