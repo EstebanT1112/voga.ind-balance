@@ -8,3 +8,19 @@ La Dueña puede gestionar el catálogo, registrar ventas, controlar el balance m
 Las Empleadas pueden ver el catálogo, realizar ventas, gestionar sus propias ventas, cargar pagos posteriores, registrar devoluciones y consultar cuánto vendieron y cuánto ganaron por comisión.
 
 El objetivo del proyecto es centralizar la gestión operativa y económica del emprendimiento, facilitando el control del stock, el seguimiento de pagos y la toma de decisiones de compra en base a datos reales de ventas.
+
+## Stack actual
+
+- Mobile: React Native + Expo.
+- Backend: Node.js + Express + TypeScript en Render Web Service Starter.
+- Base de datos: Supabase PostgreSQL.
+- Auth y Storage: Supabase.
+
+## Comandos principales
+
+```powershell
+pnpm api
+pnpm api:build
+pnpm api:start
+pnpm typecheck
+```

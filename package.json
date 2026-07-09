@@ -3,12 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "description": "Monorepo for voga.ind balance.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "api": "pnpm --filter ./apps/api dev",
+    "api:build": "pnpm --filter ./apps/api build",
+    "api:start": "pnpm --filter ./apps/api start",
+    "api:typecheck": "pnpm --filter ./apps/api typecheck",
     "mobile": "pnpm --filter ./apps/mobile start",
     "mobile:android": "pnpm --filter ./apps/mobile android",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "supabase:functions:serve": "supabase functions serve api",
     "supabase:db:reset": "supabase db reset"
   },
   "packageManager": "pnpm@9.0.0",

@@ -845,7 +845,7 @@ using (id = auth.uid());
 -- No direct client insert/update/delete policies are created for business data.
 -- No direct client select policy is created for products because sellers must
 -- never read purchase_price. Catalog reads should go through the API.
--- The Supabase service role used by Edge Functions bypasses RLS.
+-- The Supabase service role used by the Express API bypasses RLS.
 
 revoke execute on function public.create_sale_atomic(
   uuid,
