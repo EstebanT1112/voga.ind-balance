@@ -1,0 +1,1122 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import {
+  CheckCircle2,
+  ChevronRight,
+  DollarSign,
+  Phone,
+  Plus,
+  ReceiptText,
+  Search,
+  Shirt,
+  ShoppingBag,
+  ShoppingCart,
+  User,
+  X,
+} from "lucide-react-native";
+import { useAuth } from "../auth/AuthProvider";
+import { GlassBadge, LiquidCard, SectionLabel } from "../components/Liquid";
+import { apiRequest } from "../lib/api";
+import { getProductPhotoUrl } from "../products/productPhotos";
+import type { Product, ProductCategory, ProductsResponse } from "../products/product.types";
+import type { CreateSaleInput, PaymentStatus, Sale, SalesResponse } from "../sales/sale.types";
+import { colors, formatMoney } from "../theme/liquid";
+
+type SalesTab = "new" | "history";
+
+const categories: Array<{ label: string; value: ProductCategory | "all" }> = [
+  { label: "Todas", value: "all" },
+  { label: "Superior", value: "upper" },
+  { label: "Inferior", value: "lower" },
+  { label: "Lenceria", value: "lingerie" },
+];
+
+const paymentLabels: Record<PaymentStatus, string> = {
+  overdue: "Vencida",
+  paid: "Pagada",
+  partial: "Parcial",
+  unpaid: "Pendiente",
+};
+
+const paymentTones: Record<PaymentStatus, string> = {
+  overdue: colors.red,
+  paid: colors.mint,
+  partial: colors.coral,
+  unpaid: colors.violet,
+};
+
+const initialForm = {
+  buyerFullName: "",
+  buyerPhone: "",
+  initialPaymentAmount: "",
+};
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
+export function SalesScreen() {
+  const { session } = useAuth();
+  const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [category, setCategory] = useState<ProductCategory | "all">("all");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [form, setForm] = useState(initialForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [salesTab, setSalesTab] = useState<SalesTab>("new");
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+
+  const loadSales = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await apiRequest<SalesResponse>("/sales", {
+        method: "GET",
+        session,
+      });
+
+      setSales(response.items);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "No se pudieron cargar las ventas");
+    } finally {
+      setLoading(false);
+    }
+  }, [session]);
+
+  const loadAvailableProducts = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setProductsLoading(true);
+    setFormError(null);
+
+    try {
+      const response = await apiRequest<ProductsResponse>("/products?status=available", {
+        method: "GET",
+        session,
+      });
+
+      setAvailableProducts(response.items);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "No se pudieron cargar los productos disponibles");
+    } finally {
+      setProductsLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    loadSales();
+    loadAvailableProducts();
+  }, [loadAvailableProducts, loadSales]);
+
+  const selectedProducts = useMemo(
+    () => availableProducts.filter((product) => selectedProductIds.includes(product.id)),
+    [availableProducts, selectedProductIds],
+  );
+
+  const selectedTotal = useMemo(
+    () => selectedProducts.reduce((sum, product) => sum + product.salePrice, 0),
+    [selectedProducts],
+  );
+
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return availableProducts.filter((product) => {
+      const matchesCategory = category === "all" || product.category === category;
+      const matchesSearch =
+        !normalizedSearch ||
+        [product.name, product.size, product.subcategory ?? ""].some((value) => value.toLowerCase().includes(normalizedSearch));
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [availableProducts, category, search]);
+
+  const resetForm = () => {
+    setForm(initialForm);
+    setFormError(null);
+    setSelectedProductIds([]);
+  };
+
+  const toggleProduct = (productId: string) => {
+    setSelectedProductIds((current) =>
+      current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId],
+    );
+  };
+
+  const closeCart = () => {
+    if (saving) {
+      return;
+    }
+
+    setCartOpen(false);
+  };
+
+  const createSale = async () => {
+    if (!session) {
+      return;
+    }
+
+    const initialPaymentAmount = Number.parseInt(form.initialPaymentAmount || "0", 10);
+
+    if (!form.buyerFullName.trim() || !form.buyerPhone.trim()) {
+      setFormError("Completá nombre y teléfono de la compradora.");
+      return;
+    }
+
+    if (selectedProductIds.length === 0) {
+      setFormError("Seleccioná al menos un producto.");
+      return;
+    }
+
+    if (!Number.isFinite(initialPaymentAmount) || initialPaymentAmount < 0) {
+      setFormError("El monto entregado debe ser un número válido.");
+      return;
+    }
+
+    if (initialPaymentAmount > selectedTotal) {
+      setFormError("El monto entregado no puede superar el total de la venta.");
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+
+    try {
+      const payload: CreateSaleInput = {
+        buyerFullName: form.buyerFullName.trim(),
+        buyerPhone: form.buyerPhone.trim(),
+        initialPaymentAmount,
+        productIds: selectedProductIds,
+      };
+
+      await apiRequest<{ item: Sale }>("/sales", {
+        body: payload,
+        method: "POST",
+        session,
+      });
+
+      setCartOpen(false);
+      resetForm();
+      setSalesTab("history");
+      await Promise.all([loadSales(), loadAvailableProducts()]);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "No se pudo crear la venta");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.root}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={salesTab === "history" ? loading : productsLoading}
+            tintColor={colors.violet}
+            onRefresh={salesTab === "history" ? loadSales : loadAvailableProducts}
+          />
+        }
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Ventas</Text>
+          <View style={styles.segmented}>
+            {[
+              { label: "Nueva venta", value: "new" as const },
+              { label: "Registro", value: "history" as const },
+            ].map((item) => {
+              const active = salesTab === item.value;
+
+              return (
+                <Pressable
+                  key={item.value}
+                  onPress={() => setSalesTab(item.value)}
+                  style={({ pressed }) => [styles.segmentButton, active && styles.segmentButtonActive, pressed && styles.pressed]}
+                >
+                  <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {salesTab === "new" ? (
+          <NewSaleContent
+            category={category}
+            filteredProducts={filteredProducts}
+            formError={formError}
+            productsLoading={productsLoading}
+            search={search}
+            selectedProductIds={selectedProductIds}
+            setCategory={setCategory}
+            setSearch={setSearch}
+            toggleProduct={toggleProduct}
+          />
+        ) : (
+          <HistoryContent errorMessage={errorMessage} loading={loading} sales={sales} />
+        )}
+      </ScrollView>
+
+      {salesTab === "new" && selectedProductIds.length > 0 ? (
+        <Pressable onPress={() => setCartOpen(true)} style={({ pressed }) => [styles.cartFab, pressed && styles.pressed]}>
+          <ShoppingCart color={colors.white} size={18} strokeWidth={2.5} />
+          <Text style={styles.cartFabTotal}>{formatMoney(selectedTotal)}</Text>
+          <View style={styles.cartCount}>
+            <Text style={styles.cartCountText}>{selectedProductIds.length}</Text>
+          </View>
+        </Pressable>
+      ) : null}
+
+      <Modal animationType="slide" transparent visible={cartOpen} onRequestClose={closeCart}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closeCart} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Crear venta</Text>
+              <Pressable onPress={closeCart} style={styles.closeButton}>
+                <X color={colors.violet} size={18} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+              <View style={styles.cartItems}>
+                {selectedProducts.map((product) => (
+                  <CartItem key={product.id} product={product} onRemove={() => toggleProduct(product.id)} />
+                ))}
+              </View>
+
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>{formatMoney(selectedTotal)}</Text>
+              </View>
+
+              <FormField Icon={User} label="Nombre y apellido">
+                <TextInput
+                  onChangeText={(value) => setForm((current) => ({ ...current, buyerFullName: value }))}
+                  placeholder="Ej: Camila Suarez"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={form.buyerFullName}
+                />
+              </FormField>
+
+              <FormField Icon={Phone} label="Teléfono">
+                <TextInput
+                  inputMode="tel"
+                  onChangeText={(value) => setForm((current) => ({ ...current, buyerPhone: value }))}
+                  placeholder="+54 9 11..."
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={form.buyerPhone}
+                />
+              </FormField>
+
+              <FormField Icon={DollarSign} label="Monto entregado">
+                <TextInput
+                  inputMode="numeric"
+                  onChangeText={(value) =>
+                    setForm((current) => ({ ...current, initialPaymentAmount: value.replace(/\D/g, "") }))
+                  }
+                  placeholder="0"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={form.initialPaymentAmount}
+                />
+              </FormField>
+
+              {form.initialPaymentAmount !== "" ? (
+                <View style={styles.statusPreview}>
+                  <Text style={styles.statusPreviewText}>Estado:</Text>
+                  <GlassBadge
+                    label={paymentLabels[getPreviewPaymentStatus(selectedTotal, Number.parseInt(form.initialPaymentAmount || "0", 10))]}
+                    tone={paymentTones[getPreviewPaymentStatus(selectedTotal, Number.parseInt(form.initialPaymentAmount || "0", 10))]}
+                  />
+                </View>
+              ) : null}
+
+              {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+              <Pressable disabled={saving} onPress={createSale} style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
+                {saving ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Confirmar venta</Text>
+                )}
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
+  );
+}
+
+function getPreviewPaymentStatus(total: number, paid: number): PaymentStatus {
+  if (paid >= total) {
+    return "paid";
+  }
+
+  if (paid > 0) {
+    return "partial";
+  }
+
+  return "unpaid";
+}
+
+function NewSaleContent({
+  category,
+  filteredProducts,
+  formError,
+  productsLoading,
+  search,
+  selectedProductIds,
+  setCategory,
+  setSearch,
+  toggleProduct,
+}: {
+  category: ProductCategory | "all";
+  filteredProducts: Product[];
+  formError: string | null;
+  productsLoading: boolean;
+  search: string;
+  selectedProductIds: string[];
+  setCategory: (category: ProductCategory | "all") => void;
+  setSearch: (search: string) => void;
+  toggleProduct: (productId: string) => void;
+}) {
+  return (
+    <>
+      <View style={styles.searchBox}>
+        <Search color="rgba(155,93,229,0.52)" size={17} strokeWidth={2.2} />
+        <TextInput
+          autoCapitalize="none"
+          onChangeText={setSearch}
+          placeholder="Buscar producto..."
+          placeholderTextColor="rgba(90,60,120,0.36)"
+          style={styles.searchInput}
+          value={search}
+        />
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+        {categories.map((item) => {
+          const active = item.value === category;
+
+          return (
+            <Pressable
+              key={item.value}
+              onPress={() => setCategory(item.value)}
+              style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.pressed]}
+            >
+              <Text style={[styles.filterText, active && styles.filterTextActive]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <View style={styles.productList}>
+        {filteredProducts.map((product) => (
+          <ProductOption
+            key={product.id}
+            product={product}
+            selected={selectedProductIds.includes(product.id)}
+            onPress={() => toggleProduct(product.id)}
+          />
+        ))}
+      </View>
+
+      {productsLoading ? <ActivityIndicator color={colors.violet} /> : null}
+      {!productsLoading && filteredProducts.length === 0 ? (
+        <LiquidCard style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>Sin productos disponibles</Text>
+          <Text style={styles.emptyText}>Los productos disponibles para vender van a aparecer en esta sección.</Text>
+        </LiquidCard>
+      ) : null}
+      {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+    </>
+  );
+}
+
+function HistoryContent({ errorMessage, loading, sales }: { errorMessage: string | null; loading: boolean; sales: Sale[] }) {
+  return (
+    <>
+      {errorMessage ? (
+        <LiquidCard style={styles.errorCard}>
+          <Text style={styles.errorTitle}>No se pudieron cargar las ventas</Text>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </LiquidCard>
+      ) : null}
+
+      <View>
+        <SectionLabel>Ventas realizadas</SectionLabel>
+        <View style={styles.salesList}>
+          {sales.map((sale) => (
+            <SaleCard key={sale.id} sale={sale} />
+          ))}
+        </View>
+        {!loading && sales.length === 0 ? (
+          <LiquidCard style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Sin ventas registradas</Text>
+          </LiquidCard>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+function ProductOption({ onPress, product, selected }: { onPress: () => void; product: Product; selected: boolean }) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!product.photoPath) {
+      setPhotoUrl(null);
+      return;
+    }
+
+    getProductPhotoUrl(product.photoPath)
+      .then((url) => {
+        if (mounted) {
+          setPhotoUrl(url);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setPhotoUrl(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [product.photoPath]);
+
+  return (
+    <LiquidCard onPress={onPress} style={styles.productCard}>
+      <View style={styles.productContent}>
+        <View style={styles.productThumb}>
+          {photoUrl ? (
+            <Image source={{ uri: photoUrl }} style={styles.productImage} />
+          ) : (
+            <Shirt color="rgba(155,93,229,0.44)" size={26} strokeWidth={1.8} />
+          )}
+        </View>
+        <View style={styles.productInfo}>
+          <Text numberOfLines={1} style={styles.productName}>
+            {product.name}
+          </Text>
+          <View style={styles.productBadges}>
+            <GlassBadge label={product.subcategory ?? "Producto"} tone={colors.violet} />
+            <GlassBadge label={`T: ${product.size}`} tone={colors.rose} />
+          </View>
+        </View>
+        <View style={styles.productRight}>
+          <Text style={styles.productPrice}>{formatMoney(product.salePrice)}</Text>
+          <View style={[styles.addBubble, selected && styles.addBubbleActive]}>
+            {selected ? (
+              <CheckCircle2 color={colors.white} size={16} strokeWidth={2.5} />
+            ) : (
+              <Plus color={colors.violet} size={15} strokeWidth={2.5} />
+            )}
+          </View>
+        </View>
+      </View>
+    </LiquidCard>
+  );
+}
+
+function CartItem({ onRemove, product }: { onRemove: () => void; product: Product }) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!product.photoPath) {
+      setPhotoUrl(null);
+      return;
+    }
+
+    getProductPhotoUrl(product.photoPath)
+      .then((url) => {
+        if (mounted) {
+          setPhotoUrl(url);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setPhotoUrl(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [product.photoPath]);
+
+  return (
+    <View style={styles.cartItem}>
+      <View style={styles.cartThumb}>
+        {photoUrl ? <Image source={{ uri: photoUrl }} style={styles.productImage} /> : <Shirt color="rgba(155,93,229,0.4)" size={20} />}
+      </View>
+      <View style={styles.cartInfo}>
+        <Text numberOfLines={1} style={styles.cartName}>
+          {product.name}
+        </Text>
+        <Text style={styles.cartMeta}>T: {product.size}</Text>
+      </View>
+      <Text style={styles.cartPrice}>{formatMoney(product.salePrice)}</Text>
+      <Pressable onPress={onRemove} style={styles.removeButton}>
+        <X color="rgba(90,60,120,0.42)" size={14} strokeWidth={2.5} />
+      </Pressable>
+    </View>
+  );
+}
+
+function FormField({
+  children,
+  Icon,
+  label,
+}: {
+  children: ReactNode;
+  Icon: typeof User;
+  label: string;
+}) {
+  return (
+    <View>
+      <Text style={styles.formLabel}>{label}</Text>
+      <View style={styles.inputWrap}>
+        <Icon color="rgba(155,93,229,0.52)" size={14} strokeWidth={2.4} />
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function SaleCard({ sale }: { sale: Sale }) {
+  return (
+    <LiquidCard style={styles.saleCard}>
+      <View style={styles.saleStripe} />
+      <View style={styles.saleBody}>
+        <View style={styles.saleHeader}>
+          <Text numberOfLines={1} style={styles.buyerName}>
+            {sale.buyerFullName}
+          </Text>
+          <Text style={styles.saleTotal}>{formatMoney(sale.totalAmount)}</Text>
+        </View>
+        <Text numberOfLines={1} style={styles.saleProducts}>
+          {sale.items.map((item) => item.productName).join(", ")}
+        </Text>
+        <View style={styles.saleFooter}>
+          <View style={styles.datePill}>
+            <ReceiptText color="rgba(155,93,229,0.5)" size={13} strokeWidth={2.2} />
+            <Text style={styles.dateText}>{formatDate(sale.saleDate)}</Text>
+          </View>
+          <GlassBadge label={paymentLabels[sale.paymentStatus]} tone={paymentTones[sale.paymentStatus]} />
+          <ChevronRight color="rgba(155,93,229,0.35)" size={15} strokeWidth={2.4} />
+        </View>
+      </View>
+    </LiquidCard>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  content: {
+    gap: 16,
+    paddingBottom: 132,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  header: {
+    gap: 16,
+  },
+  title: {
+    color: colors.foreground,
+    fontSize: 26,
+    fontWeight: "900",
+    lineHeight: 31,
+  },
+  segmented: {
+    backgroundColor: "rgba(255,255,255,0.48)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    padding: 6,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  segmentButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    flex: 1,
+    minHeight: 42,
+    justifyContent: "center",
+  },
+  segmentButtonActive: {
+    backgroundColor: colors.violet,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  segmentText: {
+    color: colors.faint,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  segmentTextActive: {
+    color: colors.white,
+  },
+  searchBox: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 50,
+    paddingHorizontal: 15,
+  },
+  searchInput: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    minHeight: 46,
+  },
+  filters: {
+    gap: 8,
+    paddingRight: 20,
+  },
+  filterChip: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+  },
+  filterChipActive: {
+    backgroundColor: colors.violet,
+  },
+  filterText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  filterTextActive: {
+    color: colors.white,
+  },
+  productList: {
+    gap: 12,
+  },
+  productCard: {
+    padding: 14,
+  },
+  productContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
+  productThumb: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderRadius: 18,
+    height: 56,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 56,
+  },
+  productImage: {
+    height: "100%",
+    width: "100%",
+  },
+  productInfo: {
+    flex: 1,
+  },
+  productName: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  productBadges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 7,
+  },
+  productRight: {
+    alignItems: "center",
+    gap: 8,
+  },
+  productPrice: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  addBubble: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.55)",
+    borderColor: "rgba(155,93,229,0.2)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  addBubbleActive: {
+    backgroundColor: colors.violet,
+  },
+  cartFab: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderColor: "rgba(255,255,255,0.35)",
+    borderRadius: 999,
+    borderWidth: 1,
+    bottom: 92,
+    flexDirection: "row",
+    gap: 9,
+    minHeight: 52,
+    paddingHorizontal: 18,
+    position: "absolute",
+    right: 20,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.5,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+  },
+  cartFabTotal: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  cartCount: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.24)",
+    borderRadius: 999,
+    height: 22,
+    justifyContent: "center",
+    width: 22,
+  },
+  cartCountText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  errorCard: {
+    borderColor: "rgba(224,82,113,0.24)",
+    padding: 16,
+  },
+  errorTitle: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  errorText: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  salesList: {
+    gap: 12,
+  },
+  saleCard: {
+    flexDirection: "row",
+    padding: 16,
+  },
+  saleStripe: {
+    alignSelf: "stretch",
+    backgroundColor: colors.violet,
+    borderRadius: 999,
+    marginRight: 12,
+    width: 4,
+  },
+  saleBody: {
+    flex: 1,
+  },
+  saleHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  buyerName: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  saleTotal: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  saleProducts: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 7,
+  },
+  saleFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  datePill: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+  },
+  dateText: {
+    color: colors.faint,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  emptyCard: {
+    padding: 18,
+  },
+  emptyTitle: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalBackdrop: {
+    backgroundColor: "rgba(20,10,35,0.55)",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  sheet: {
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderColor: "rgba(255,255,255,0.88)",
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    borderWidth: 1,
+    maxHeight: "92%",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.18,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -12 },
+    elevation: 20,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    backgroundColor: "rgba(155,93,229,0.24)",
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 16,
+    width: 42,
+  },
+  sheetHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    color: colors.foreground,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  closeButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.12)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  formContent: {
+    gap: 15,
+    paddingBottom: 28,
+  },
+  cartItems: {
+    gap: 9,
+  },
+  cartItem: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.06)",
+    borderColor: "rgba(155,93,229,0.1)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 12,
+  },
+  cartThumb: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderRadius: 14,
+    height: 42,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 42,
+  },
+  cartInfo: {
+    flex: 1,
+  },
+  cartName: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  cartMeta: {
+    color: colors.faint,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  cartPrice: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  removeButton: {
+    padding: 4,
+  },
+  totalRow: {
+    alignItems: "center",
+    borderColor: "rgba(155,93,229,0.12)",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingTop: 14,
+  },
+  totalLabel: {
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  totalValue: {
+    color: colors.foreground,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  formLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    marginBottom: 7,
+    textTransform: "uppercase",
+  },
+  inputWrap: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderColor: "rgba(255,255,255,0.78)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  formInput: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    minHeight: 46,
+  },
+  statusPreview: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.07)",
+    borderColor: "rgba(155,93,229,0.12)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  statusPreviewText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  formError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  confirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 20,
+    justifyContent: "center",
+    minHeight: 54,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.38,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  confirmButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  pressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+});

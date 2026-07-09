@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { HomeScreen } from "../screens/HomeScreen";
 import { PlaceholderScreen } from "../screens/PlaceholderScreen";
 import { ProductsScreen } from "../screens/ProductsScreen";
+import { SalesScreen } from "../screens/SalesScreen";
 import { colors } from "../theme/liquid";
 
 type Tab = "home" | "products" | "sales" | "payments" | "expenses";
@@ -32,6 +33,8 @@ export function AppShell() {
           <HomeScreen />
         ) : tab === "products" ? (
           <ProductsScreen />
+        ) : tab === "sales" ? (
+          <SalesScreen />
         ) : (
           <PlaceholderScreen Icon={active.Icon} label={active.label} mark={active.mark} />
         )}
