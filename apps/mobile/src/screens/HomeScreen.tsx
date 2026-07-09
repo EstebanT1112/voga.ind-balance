@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, DollarSign, Package, TrendingUp } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, TrendingUp, Users } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
+import { IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
-import { GlassBadge, IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
+import type { ApiProfile, ReportSummary, UsersResponse } from "../reports/report.types";
 import { colors, formatMoney } from "../theme/liquid";
-import type { ReportSummary } from "../reports/report.types";
 
 function currentMonthRange() {
   const now = new Date();
@@ -19,14 +19,24 @@ function currentMonthRange() {
   };
 }
 
+function getInitials(fullName: string): string {
+  return fullName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 export function HomeScreen() {
   const { profile, session, signOut } = useAuth();
-  const [report, setReport] = useState<ReportSummary | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState<ReportSummary | null>(null);
+  const [sellers, setSellers] = useState<ApiProfile[]>([]);
   const month = currentMonthRange();
 
-  const loadReport = useCallback(async () => {
+  const loadHome = useCallback(async () => {
     if (!session || profile?.role !== "owner") {
       return;
     }
@@ -39,7 +49,13 @@ export function HomeScreen() {
         from: month.from,
         to: month.to,
       });
-      setReport(await apiRequest<ReportSummary>(`/reports?${query.toString()}`, { method: "GET", session }));
+      const [reportResponse, sellersResponse] = await Promise.all([
+        apiRequest<ReportSummary>(`/reports?${query.toString()}`, { method: "GET", session }),
+        apiRequest<UsersResponse>("/users?role=seller&active=true", { method: "GET", session }),
+      ]);
+
+      setReport(reportResponse);
+      setSellers(sellersResponse.items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "No se pudo cargar el resumen");
     } finally {
@@ -48,8 +64,24 @@ export function HomeScreen() {
   }, [month.from, month.to, profile?.role, session]);
 
   useEffect(() => {
-    loadReport();
-  }, [loadReport]);
+    loadHome();
+  }, [loadHome]);
+
+  const employeeRows = useMemo(
+    () =>
+      sellers.map((seller, index) => {
+        const commission = report?.commissionsBySeller.find((item) => item.sellerId === seller.id);
+
+        return {
+          color: seller.color ?? [colors.violet, colors.rose, colors.coral, colors.mint][index % 4] ?? colors.violet,
+          commission: commission?.commissionAmount ?? 0,
+          fullName: seller.fullName,
+          initials: getInitials(seller.fullName),
+          sold: commission?.collectedAmount ?? 0,
+        };
+      }),
+    [report?.commissionsBySeller, sellers],
+  );
 
   if (profile?.role !== "owner") {
     return (
@@ -61,7 +93,7 @@ export function HomeScreen() {
         </View>
         <LiquidCard style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Panel de vendedora</Text>
-          <Text style={styles.emptyText}>El siguiente paso es conectar productos y ventas para tu rol.</Text>
+          <Text style={styles.emptyText}>Lo vamos a armar cuando terminemos la vista de dueña.</Text>
         </LiquidCard>
       </ScrollView>
     );
@@ -72,12 +104,12 @@ export function HomeScreen() {
   return (
     <ScrollView
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadReport} />}
+      refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadHome} />}
     >
       <View style={styles.header}>
         <View>
           <Text style={styles.month}>{month.label}</Text>
-          <Text style={styles.title}>Hola, {profile?.fullName ?? "Dueña"}</Text>
+          <Text style={styles.title}>Hola, Dueña</Text>
           <Text style={styles.subtitle}>Tu resumen del mes</Text>
         </View>
         <Pressable onPress={signOut} style={styles.logout}>
@@ -86,9 +118,11 @@ export function HomeScreen() {
       </View>
 
       <LiquidCard style={styles.hero}>
+        <View style={styles.heroGlow} />
+        <View style={styles.heroHighlight} />
         <View style={styles.heroLabelRow}>
           <IconBubble Icon={DollarSign} tone={colors.violet} />
-          <Text style={styles.heroLabel}>Ingreso esperado</Text>
+          <Text style={styles.heroLabel}>Ingreso esperado del mes</Text>
         </View>
         <Text style={styles.heroValue}>{formatMoney(totals?.salesAmount ?? 0)}</Text>
 
@@ -112,40 +146,26 @@ export function HomeScreen() {
       ) : null}
 
       <View>
-        <SectionLabel>Indicadores</SectionLabel>
-        <View style={styles.metricsGrid}>
-          <MetricCard label="Ganancia" value={formatMoney(totals?.collectedProfit ?? 0)} tone={colors.violet} />
-          <MetricCard label="Egresos" value={formatMoney(totals?.expensesAmount ?? 0)} tone={colors.coral} />
-          <MetricCard label="Comisiones" value={formatMoney(totals?.commissionAmount ?? 0)} tone={colors.rose} />
-          <MetricCard label="Neto final" value={formatMoney(totals?.netProfitAfterExpenses ?? 0)} tone={colors.mint} />
+        <View style={styles.sectionHeader}>
+          <SectionLabel>Empleadas</SectionLabel>
+          <Users color="rgba(155,93,229,0.5)" size={15} strokeWidth={2.3} />
         </View>
-      </View>
-
-      <View>
-        <SectionLabel>Mayor salida</SectionLabel>
-        <LiquidCard style={styles.listCard}>
-          {(report?.topCategories ?? []).slice(0, 4).map((item) => (
-            <View key={item.key} style={styles.rankRow}>
-              <View style={styles.rankLeft}>
-                <IconBubble Icon={Package} tone={colors.lilac} />
-                <View>
-                  <Text style={styles.rankTitle}>{item.key}</Text>
-                  <Text style={styles.rankMeta}>{item.quantity} unidades</Text>
-                </View>
-              </View>
-              <Text style={styles.rankAmount}>{formatMoney(item.amount)}</Text>
-            </View>
+        <View style={styles.employeeList}>
+          {employeeRows.map((item) => (
+            <EmployeeCard
+              key={item.fullName}
+              color={item.color}
+              commission={item.commission}
+              fullName={item.fullName}
+              initials={item.initials}
+              sold={item.sold}
+            />
           ))}
-          {report?.topCategories.length === 0 ? <Text style={styles.emptyText}>Sin ventas confirmadas todavia.</Text> : null}
-        </LiquidCard>
-      </View>
-
-      <View>
-        <SectionLabel>Talles</SectionLabel>
-        <View style={styles.sizeWrap}>
-          {(report?.topSizes ?? []).slice(0, 8).map((item) => (
-            <GlassBadge key={item.key} label={`${item.key} · ${item.quantity}`} tone={colors.violet} />
-          ))}
+          {employeeRows.length === 0 ? (
+            <LiquidCard style={styles.emptyCard}>
+              <Text style={styles.emptyText}>Todavía no hay empleadas configuradas.</Text>
+            </LiquidCard>
+          ) : null}
         </View>
       </View>
     </ScrollView>
@@ -167,28 +187,54 @@ function MetricTile({
     <View style={styles.metricTile}>
       <View style={styles.metricTileHeader}>
         <Icon color={tone} size={13} strokeWidth={2.4} />
-        <Text style={[styles.metricTileLabel, { color: tone }]}>{label}</Text>
+        <Text style={styles.metricTileLabel}>{label}</Text>
       </View>
       <Text style={styles.metricTileValue}>{value}</Text>
     </View>
   );
 }
 
-function MetricCard({ label, tone, value }: { label: string; tone: string; value: string }) {
+function EmployeeCard({
+  color,
+  commission,
+  fullName,
+  initials,
+  sold,
+}: {
+  color: string;
+  commission: number;
+  fullName: string;
+  initials: string;
+  sold: number;
+}) {
   return (
-    <LiquidCard style={styles.metricCard}>
-      <Text style={[styles.metricLabel, { color: tone }]}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
+    <LiquidCard style={styles.employeeCard}>
+      <View style={[styles.avatar, { backgroundColor: color }]}>
+        <Text style={styles.avatarText}>{initials}</Text>
+      </View>
+      <View style={styles.employeeBody}>
+        <Text numberOfLines={1} style={styles.employeeName}>
+          {fullName}
+        </Text>
+        <Text style={styles.employeeSold}>
+          Vendido: <Text style={[styles.employeeSoldStrong, { color }]}>{formatMoney(sold)}</Text>
+        </Text>
+      </View>
+      <View style={styles.employeeRight}>
+        <Text style={styles.employeeCommissionLabel}>Comisión 15%</Text>
+        <Text style={styles.employeeCommission}>{formatMoney(commission)}</Text>
+      </View>
+      <ChevronRight color="rgba(155,93,229,0.4)" size={15} strokeWidth={2.4} />
     </LiquidCard>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    gap: 22,
+    gap: 24,
     paddingBottom: 112,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 20,
   },
   header: {
     alignItems: "flex-start",
@@ -196,10 +242,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   month: {
-    color: "rgba(155,93,229,0.62)",
+    color: "rgba(155,93,229,0.55)",
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1.5,
+    marginBottom: 4,
     textTransform: "uppercase",
   },
   title: {
@@ -207,10 +254,9 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "900",
     lineHeight: 31,
-    marginTop: 3,
   },
   subtitle: {
-    color: colors.muted,
+    color: "rgba(90,60,120,0.55)",
     fontSize: 13,
     marginTop: 2,
   },
@@ -228,53 +274,78 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   hero: {
-    backgroundColor: "rgba(255,255,255,0.36)",
-    padding: 20,
+    backgroundColor: "rgba(255,255,255,0.34)",
+    borderColor: "rgba(255,255,255,0.6)",
+    borderRadius: 32,
+    padding: 24,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 20 },
+  },
+  heroGlow: {
+    backgroundColor: "rgba(192,132,252,0.2)",
+    borderRadius: 130,
+    height: 190,
+    position: "absolute",
+    right: -68,
+    top: -74,
+    width: 190,
+  },
+  heroHighlight: {
+    alignSelf: "center",
+    backgroundColor: "rgba(255,255,255,0.65)",
+    borderRadius: 999,
+    height: 1,
+    position: "absolute",
+    top: 0,
+    width: "78%",
   },
   heroLabelRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
     marginBottom: 16,
   },
   heroLabel: {
-    color: colors.muted,
+    color: "rgba(90,60,120,0.7)",
     fontSize: 12,
     fontWeight: "800",
   },
   heroValue: {
     color: colors.foreground,
-    fontSize: 36,
+    fontSize: 38,
     fontWeight: "900",
     lineHeight: 40,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   heroGrid: {
     flexDirection: "row",
     gap: 12,
   },
   metricTile: {
-    backgroundColor: "rgba(255,255,255,0.36)",
-    borderColor: "rgba(255,255,255,0.66)",
-    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.32)",
+    borderColor: "rgba(255,255,255,0.6)",
+    borderRadius: 18,
     borderWidth: 1,
     flex: 1,
-    padding: 12,
-  },
-  metricTileLabel: {
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase",
+    padding: 14,
   },
   metricTileHeader: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 5,
-    marginBottom: 7,
+    gap: 6,
+    marginBottom: 8,
+  },
+  metricTileLabel: {
+    color: "rgba(90,60,120,0.6)",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   metricTileValue: {
     color: colors.foreground,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "900",
   },
   loading: {
@@ -295,60 +366,66 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  metricCard: {
-    minHeight: 92,
-    padding: 15,
-    width: "47.8%",
-  },
-  metricLabel: {
-    fontSize: 11,
-    fontWeight: "900",
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
-  metricValue: {
-    color: colors.foreground,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  listCard: {
-    gap: 14,
-    padding: 14,
-  },
-  rankRow: {
+  sectionHeader: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  rankLeft: {
+  employeeList: {
+    gap: 12,
+  },
+  employeeCard: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
+    padding: 16,
   },
-  rankTitle: {
+  avatar: {
+    alignItems: "center",
+    borderRadius: 23,
+    height: 46,
+    justifyContent: "center",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    width: 46,
+  },
+  avatarText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  employeeBody: {
+    flex: 1,
+  },
+  employeeName: {
     color: colors.foreground,
     fontSize: 14,
     fontWeight: "900",
   },
-  rankMeta: {
-    color: colors.faint,
+  employeeSold: {
+    color: "rgba(90,60,120,0.6)",
     fontSize: 12,
-    marginTop: 1,
+    marginTop: 3,
   },
-  rankAmount: {
-    color: colors.foreground,
-    fontSize: 13,
+  employeeSoldStrong: {
     fontWeight: "900",
   },
-  sizeWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+  employeeRight: {
+    alignItems: "flex-end",
+  },
+  employeeCommissionLabel: {
+    color: "rgba(90,60,120,0.5)",
+    fontSize: 10,
+    fontWeight: "900",
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  employeeCommission: {
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "900",
   },
   emptyCard: {
     padding: 18,

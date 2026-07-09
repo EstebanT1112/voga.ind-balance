@@ -10,6 +10,7 @@ import { productRoutes } from "./modules/products/product.routes.js";
 import { reportRoutes } from "./modules/reports/report.routes.js";
 import { returnRoutes } from "./modules/returns/return.routes.js";
 import { saleRoutes } from "./modules/sales/sale.routes.js";
+import { userRoutes } from "./modules/users/user.routes.js";
 
 export const app = express();
 
@@ -35,6 +36,7 @@ app.use("/payments", paymentRoutes);
 app.use("/returns", returnRoutes);
 app.use("/expenses", expenseRoutes);
 app.use("/reports", reportRoutes);
+app.use("/users", userRoutes);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);

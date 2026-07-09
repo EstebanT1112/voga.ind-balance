@@ -19,3 +19,8 @@ export interface ProfileRow {
   created_at: string;
   updated_at: string;
 }
+
+export interface UserListFilters {
+  role?: ApiRole;
+  active?: boolean;
+}
