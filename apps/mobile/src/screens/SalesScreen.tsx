@@ -37,6 +37,7 @@ import { getProductPhotoUrl } from "../products/productPhotos";
 import type { Product, ProductCategory, ProductsResponse } from "../products/product.types";
 import type { ApiProfile, UsersResponse } from "../reports/report.types";
 import type { Payment, PaymentsResponse } from "../payments/payment.types";
+import type { CreateReturnInput, ReturnsResponse, SaleReturn } from "../returns/return.types";
 import type { CreateSaleInput, PaymentStatus, Sale, SaleItem, SalesResponse } from "../sales/sale.types";
 import { colors, formatMoney } from "../theme/liquid";
 
@@ -73,6 +74,11 @@ const initialForm = {
 const initialPaymentForm = {
   amount: "",
   note: "",
+};
+
+const initialReturnForm = {
+  refundAmount: "",
+  reason: "",
 };
 
 function formatDate(value: string): string {
@@ -808,12 +814,27 @@ function SaleDetail({
   const sellerColor = seller?.color ?? colors.violet;
   const age = getDaysFromToday(sale.saleDate);
   const inReturnWindow = new Date(sale.returnDeadline).getTime() >= Date.now();
+  const returnableItems = useMemo(() => sale.items.filter((item) => item.status === "sold"), [sale.items]);
   const [paymentForm, setPaymentForm] = useState(initialPaymentForm);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
   const [paymentSaving, setPaymentSaving] = useState(false);
+  const [returnForm, setReturnForm] = useState(initialReturnForm);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnError, setReturnError] = useState<string | null>(null);
+  const [returns, setReturns] = useState<SaleReturn[]>([]);
+  const [returnsLoading, setReturnsLoading] = useState(false);
+  const [returnSaving, setReturnSaving] = useState(false);
+  const [selectedReturnItemIds, setSelectedReturnItemIds] = useState<string[]>([]);
+
+  const selectedReturnTotal = useMemo(
+    () => sale.items.filter((item) => selectedReturnItemIds.includes(item.id)).reduce((sum, item) => sum + item.salePrice, 0),
+    [sale.items, selectedReturnItemIds],
+  );
+  const refundedAmount = useMemo(() => returns.reduce((sum, item) => sum + item.refundAmount, 0), [returns]);
+  const maxRefundAmount = Math.max(0, sale.paidAmount - refundedAmount);
 
   const loadPayments = useCallback(async () => {
     if (!session) {
@@ -837,6 +858,29 @@ function SaleDetail({
   useEffect(() => {
     loadPayments();
   }, [loadPayments]);
+
+  const loadReturns = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setReturnsLoading(true);
+
+    try {
+      const response = await apiRequest<ReturnsResponse>(`/returns?saleId=${sale.id}`, {
+        method: "GET",
+        session,
+      });
+
+      setReturns(response.items);
+    } finally {
+      setReturnsLoading(false);
+    }
+  }, [sale.id, session]);
+
+  useEffect(() => {
+    loadReturns();
+  }, [loadReturns]);
 
   const closePayment = () => {
     if (paymentSaving) {
@@ -892,6 +936,101 @@ function SaleDetail({
       setPaymentError(error instanceof Error ? error.message : "No se pudo registrar el pago");
     } finally {
       setPaymentSaving(false);
+    }
+  };
+
+  const openReturnSheet = () => {
+    if (returnableItems.length === 0 || !inReturnWindow) {
+      return;
+    }
+
+    const defaultIds = returnableItems.map((item) => item.id);
+    const defaultRefund = Math.min(
+      returnableItems.reduce((sum, item) => sum + item.salePrice, 0),
+      maxRefundAmount,
+    );
+
+    setSelectedReturnItemIds(defaultIds);
+    setReturnForm({ ...initialReturnForm, refundAmount: String(defaultRefund) });
+    setReturnError(null);
+    setReturnOpen(true);
+  };
+
+  const closeReturn = () => {
+    if (returnSaving) {
+      return;
+    }
+
+    setReturnOpen(false);
+    setReturnError(null);
+    setReturnForm(initialReturnForm);
+    setSelectedReturnItemIds([]);
+  };
+
+  const toggleReturnItem = (saleItemId: string) => {
+    setSelectedReturnItemIds((current) =>
+      current.includes(saleItemId) ? current.filter((id) => id !== saleItemId) : [...current, saleItemId],
+    );
+  };
+
+  const registerReturn = async () => {
+    if (!session) {
+      return;
+    }
+
+    const refundAmount = Number.parseInt(returnForm.refundAmount || "0", 10);
+
+    if (selectedReturnItemIds.length === 0) {
+      setReturnError("Selecciona al menos un producto.");
+      return;
+    }
+
+    if (!Number.isFinite(refundAmount) || refundAmount < 0) {
+      setReturnError("El reintegro debe ser un numero valido.");
+      return;
+    }
+
+    if (refundAmount > selectedReturnTotal) {
+      setReturnError("El reintegro no puede superar el valor de los productos seleccionados.");
+      return;
+    }
+
+    if (refundAmount > maxRefundAmount) {
+      setReturnError("El reintegro no puede superar lo cobrado disponible.");
+      return;
+    }
+
+    setReturnSaving(true);
+    setReturnError(null);
+
+    try {
+      const payload: CreateReturnInput = {
+        refundAmount,
+        reason: returnForm.reason.trim() || null,
+        saleId: sale.id,
+        saleItemIds: selectedReturnItemIds,
+      };
+
+      await apiRequest("/returns", {
+        body: payload,
+        method: "POST",
+        session,
+      });
+
+      const response = await apiRequest<{ item: Sale }>(`/sales/${sale.id}`, {
+        method: "GET",
+        session,
+      });
+
+      await Promise.all([loadReturns(), loadPayments()]);
+      onSaleUpdated(response.item);
+      setReturnOpen(false);
+      setReturnForm(initialReturnForm);
+      setSelectedReturnItemIds([]);
+    } catch (error) {
+      setReturnError(error instanceof Error ? error.message : "No se pudo registrar la devolucion");
+    } finally {
+      setReturnSaving(false);
     }
   };
 
@@ -963,19 +1102,110 @@ function SaleDetail({
         </View>
       </DetailSection>
 
-      <DetailSection title="Devolución">
+      <DetailSection title="Devolucion">
         <View style={styles.returnRow}>
           <Text style={styles.detailMuted}>{inReturnWindow ? `Dentro del plazo (${age}d)` : `Fuera de plazo (${age}d)`}</Text>
           {inReturnWindow ? (
-            <Pressable style={({ pressed }) => [styles.returnButton, pressed && styles.pressed]}>
+            <Pressable onPress={openReturnSheet} style={({ pressed }) => [styles.returnButton, pressed && styles.pressed]}>
               <RotateCcw color={colors.white} size={13} strokeWidth={2.5} />
               <Text style={styles.returnButtonText}>Gestionar</Text>
             </Pressable>
           ) : (
-            <GlassBadge label="Sin devolución" tone="rgba(90,60,120,0.5)" />
+            <GlassBadge label="Sin devolucion" tone="rgba(90,60,120,0.5)" />
           )}
         </View>
       </DetailSection>
+
+      <DetailSection title="Registro de devoluciones">
+        <View style={styles.detailStack}>
+          {returnsLoading ? <ActivityIndicator color={colors.violet} /> : null}
+          {!returnsLoading && returns.length === 0 ? <Text style={styles.detailMuted}>Todavia no hay devoluciones registradas.</Text> : null}
+          {returns.map((item) => (
+            <ReturnRow key={item.id} saleReturn={item} saleItems={sale.items} />
+          ))}
+        </View>
+      </DetailSection>
+
+      <Modal animationType="slide" transparent visible={returnOpen} onRequestClose={closeReturn}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closeReturn} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Gestionar devolucion</Text>
+              <Pressable onPress={closeReturn} style={styles.closeButton}>
+                <X color={colors.violet} size={18} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+              <View style={styles.paymentSummary}>
+                <AmountLine color={colors.foreground} label="Productos seleccionados" value={selectedReturnTotal} />
+                <AmountLine color={colors.mint} label="Reintegro disponible" value={maxRefundAmount} />
+              </View>
+
+              <View style={styles.returnItems}>
+                {returnableItems.map((item) => {
+                  const active = selectedReturnItemIds.includes(item.id);
+
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => toggleReturnItem(item.id)}
+                      style={({ pressed }) => [styles.returnItemOption, active && styles.returnItemOptionActive, pressed && styles.pressed]}
+                    >
+                      <View style={[styles.returnCheck, active && styles.returnCheckActive]}>
+                        {active ? <CheckCircle2 color={colors.white} size={16} strokeWidth={2.5} /> : null}
+                      </View>
+                      <View style={styles.detailProductInfo}>
+                        <Text numberOfLines={1} style={styles.detailProductName}>
+                          {item.productName}
+                        </Text>
+                        <Text style={styles.detailMuted}>Talle {item.productSize}</Text>
+                      </View>
+                      <Text style={styles.detailProductPrice}>{formatMoney(item.salePrice)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <FormField Icon={DollarSign} label="Reintegro">
+                <TextInput
+                  inputMode="numeric"
+                  onChangeText={(value) => setReturnForm((current) => ({ ...current, refundAmount: value.replace(/\D/g, "") }))}
+                  placeholder="0"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={returnForm.refundAmount}
+                />
+              </FormField>
+
+              <FormField Icon={ReceiptText} label="Motivo">
+                <TextInput
+                  onChangeText={(value) => setReturnForm((current) => ({ ...current, reason: value }))}
+                  placeholder="Ej: Producto devuelto"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={returnForm.reason}
+                />
+              </FormField>
+
+              {returnError ? <Text style={styles.formError}>{returnError}</Text> : null}
+
+              <Pressable disabled={returnSaving} onPress={registerReturn} style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
+                {returnSaving ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <RotateCcw color={colors.white} size={16} strokeWidth={2.5} />
+                    <Text style={styles.confirmButtonText}>Guardar devolucion</Text>
+                  </>
+                )}
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal animationType="slide" transparent visible={paymentOpen} onRequestClose={closePayment}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
@@ -1050,6 +1280,29 @@ function PaymentRow({ payment }: { payment: Payment }) {
   );
 }
 
+function ReturnRow({ saleItems, saleReturn }: { saleItems: SaleItem[]; saleReturn: SaleReturn }) {
+  const returnedNames = saleReturn.items
+    .map((item) => saleItems.find((saleItem) => saleItem.id === item.saleItemId)?.productName)
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <View style={styles.paymentRow}>
+      <View style={styles.returnIcon}>
+        <RotateCcw color={colors.red} size={15} strokeWidth={2.4} />
+      </View>
+      <View style={styles.paymentInfo}>
+        <Text numberOfLines={1} style={styles.paymentKind}>
+          {returnedNames || "Productos devueltos"}
+        </Text>
+        <Text style={styles.paymentDate}>{formatFullDate(saleReturn.returnedAt)}</Text>
+        {saleReturn.reason ? <Text style={styles.paymentNote}>{saleReturn.reason}</Text> : null}
+      </View>
+      <Text style={styles.returnAmount}>-{formatMoney(saleReturn.refundAmount)}</Text>
+    </View>
+  );
+}
+
 function SaleDetailProductRow({ item, session }: { item: SaleItem; session: ReturnType<typeof useAuth>["session"] }) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
@@ -1103,9 +1356,13 @@ function SaleDetailProductRow({ item, session }: { item: SaleItem; session: Retu
         <Text numberOfLines={1} style={styles.detailProductName}>
           {item.productName}
         </Text>
-        <Text style={styles.detailMuted}>Talle {item.productSize}</Text>
+        <Text style={styles.detailMuted}>
+          {item.status === "returned" ? "Devuelto" : "Talle " + item.productSize}
+        </Text>
       </View>
-      <Text style={styles.detailProductPrice}>{formatMoney(item.salePrice)}</Text>
+      <Text style={[styles.detailProductPrice, item.status === "returned" && styles.detailProductReturnedPrice]}>
+        {formatMoney(item.salePrice)}
+      </Text>
     </View>
   );
 }
@@ -1631,6 +1888,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.violet,
     borderRadius: 20,
+    flexDirection: "row",
+    gap: 8,
     justifyContent: "center",
     minHeight: 54,
     shadowColor: colors.violet,
@@ -1764,6 +2023,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 34,
   },
+  returnIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(224,82,113,0.12)",
+    borderRadius: 999,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
   paymentInfo: {
     flex: 1,
   },
@@ -1788,6 +2055,43 @@ const styles = StyleSheet.create({
     color: colors.mint,
     fontSize: 14,
     fontWeight: "900",
+  },
+  returnAmount: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  returnItems: {
+    gap: 8,
+  },
+  returnItemOption: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.46)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 54,
+    padding: 12,
+  },
+  returnItemOptionActive: {
+    backgroundColor: "rgba(155,93,229,0.1)",
+    borderColor: "rgba(155,93,229,0.22)",
+  },
+  returnCheck: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  returnCheckActive: {
+    backgroundColor: colors.violet,
+    borderColor: colors.violet,
   },
   detailProductRow: {
     alignItems: "center",
@@ -1815,6 +2119,10 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     fontSize: 14,
     fontWeight: "900",
+  },
+  detailProductReturnedPrice: {
+    color: colors.red,
+    textDecorationLine: "line-through",
   },
   returnRow: {
     alignItems: "center",

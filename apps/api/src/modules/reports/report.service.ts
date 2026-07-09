@@ -128,7 +128,7 @@ export const reportService = {
 
     const data = await reportRepository.getData(filters);
 
-    const salesAmount = sumBy(data.sales, (sale) => sale.total_amount);
+    const salesAmount = sumBy(data.saleItems, (item) => item.sale_price);
     const collectedAmount = sumBy(data.payments, (payment) => payment.amount);
     const refundedAmount = sumBy(data.returns, (returnRow) => returnRow.refund_amount);
     const netCollectedAmount = collectedAmount - refundedAmount;
