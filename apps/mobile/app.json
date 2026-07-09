@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "voga.ind balance",
+    "slug": "voga-ind-balance",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.vogaind.balance"
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}
