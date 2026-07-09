@@ -1,0 +1,11 @@
+{
+  "name": "mobile",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  }
+}
