@@ -15,7 +15,17 @@ export interface ReportSummary {
     quantity: number;
     amount: number;
   }>;
+  topSubcategories: Array<{
+    key: string;
+    quantity: number;
+    amount: number;
+  }>;
   topSizes: Array<{
+    key: string;
+    quantity: number;
+    amount: number;
+  }>;
+  topProducts: Array<{
     key: string;
     quantity: number;
     amount: number;
