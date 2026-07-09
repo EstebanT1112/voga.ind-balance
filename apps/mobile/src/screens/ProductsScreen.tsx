@@ -1,0 +1,943 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import * as ImagePicker from "expo-image-picker";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Camera, ImagePlus, Package, Plus, Save, Search, Shirt, Tag, X } from "lucide-react-native";
+import { useAuth } from "../auth/AuthProvider";
+import { GlassBadge, IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
+import { apiRequest } from "../lib/api";
+import { getProductPhotoUrl, uploadProductPhoto } from "../products/productPhotos";
+import type { CreateProductInput, Product, ProductCategory, ProductStatus, ProductsResponse } from "../products/product.types";
+import { colors, formatMoney } from "../theme/liquid";
+
+const categories: Array<{ label: string; value: ProductCategory | "all" }> = [
+  { label: "Todas", value: "all" },
+  { label: "Superior", value: "upper" },
+  { label: "Inferior", value: "lower" },
+  { label: "Lenceria", value: "lingerie" },
+];
+
+const statusLabels: Record<ProductStatus, string> = {
+  available: "Disponible",
+  sold: "Vendido",
+};
+
+const categoryLabels: Record<ProductCategory, string> = {
+  lingerie: "Lenceria",
+  lower: "Inferior",
+  upper: "Superior",
+};
+
+const initialForm = {
+  category: "upper" as ProductCategory,
+  description: "",
+  name: "",
+  purchasePrice: "",
+  salePrice: "",
+  size: "",
+  subcategory: "",
+};
+
+export function ProductsScreen() {
+  const { profile, session } = useAuth();
+  const [category, setCategory] = useState<ProductCategory | "all">("all");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [form, setForm] = useState(initialForm);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [imageAsset, setImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const loadProducts = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const params = new URLSearchParams();
+
+      if (category !== "all") {
+        params.set("category", category);
+      }
+
+      if (search.trim()) {
+        params.set("search", search.trim());
+      }
+
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      const response = await apiRequest<ProductsResponse>(`/products${suffix}`, {
+        method: "GET",
+        session,
+      });
+
+      setProducts(response.items);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "No se pudo cargar el catalogo");
+    } finally {
+      setLoading(false);
+    }
+  }, [category, search, session]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [loadProducts]);
+
+  const totals = useMemo(
+    () => ({
+      available: products.filter((product) => product.status === "available").length,
+      sold: products.filter((product) => product.status === "sold").length,
+    }),
+    [products],
+  );
+
+  const resetForm = () => {
+    setForm(initialForm);
+    setFormError(null);
+    setImageAsset(null);
+  };
+
+  const closeForm = () => {
+    if (saving) {
+      return;
+    }
+
+    setFormOpen(false);
+    resetForm();
+  };
+
+  const pickImage = async (source: "camera" | "library") => {
+    const permission =
+      source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("Permiso requerido", "Necesitamos permiso para acceder a la foto del producto.");
+      return;
+    }
+
+    const result =
+      source === "camera"
+        ? await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.82,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            allowsEditing: true,
+            aspect: [1, 1],
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.82,
+          });
+
+    if (!result.canceled) {
+      setImageAsset(result.assets[0] ?? null);
+    }
+  };
+
+  const createProduct = async () => {
+    if (!session || !profile) {
+      return;
+    }
+
+    const purchasePrice = Number.parseInt(form.purchasePrice, 10);
+    const salePrice = Number.parseInt(form.salePrice, 10);
+
+    if (!form.name.trim() || !form.size.trim() || !Number.isFinite(purchasePrice) || !Number.isFinite(salePrice)) {
+      setFormError("Completá nombre, talle, costo y precio de venta.");
+      return;
+    }
+
+    if (salePrice < purchasePrice) {
+      setFormError("El precio de venta no puede ser menor al costo.");
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+
+    try {
+      const photoPath = imageAsset ? await uploadProductPhoto(imageAsset, profile.id) : null;
+      const payload: CreateProductInput = {
+        category: form.category,
+        description: form.description.trim() || null,
+        name: form.name.trim(),
+        photoPath,
+        purchasePrice,
+        salePrice,
+        size: form.size.trim(),
+        subcategory: form.subcategory.trim() || null,
+      };
+
+      await apiRequest<{ item: Product }>("/products", {
+        body: payload,
+        method: "POST",
+        session,
+      });
+
+      setFormOpen(false);
+      resetForm();
+      await loadProducts();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "No se pudo crear el producto");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.root}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadProducts} />}
+      >
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>Productos</Text>
+            <Text style={styles.subtitle}>
+              {totals.available} disponibles · {totals.sold} vendidos
+            </Text>
+          </View>
+          <IconBubble Icon={Package} tone={colors.violet} />
+        </View>
+
+        <View style={styles.searchBox}>
+          <Search color="rgba(155,93,229,0.52)" size={17} strokeWidth={2.2} />
+          <TextInput
+            autoCapitalize="none"
+            onChangeText={setSearch}
+            placeholder="Buscar producto..."
+            placeholderTextColor="rgba(90,60,120,0.36)"
+            returnKeyType="search"
+            style={styles.searchInput}
+            value={search}
+          />
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          {categories.map((item) => {
+            const active = item.value === category;
+
+            return (
+              <Pressable
+                key={item.value}
+                onPress={() => setCategory(item.value)}
+                style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.pressed]}
+              >
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {errorMessage ? (
+          <LiquidCard style={styles.errorCard}>
+            <Text style={styles.errorTitle}>No se pudo cargar el catalogo</Text>
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          </LiquidCard>
+        ) : null}
+
+        <View>
+          <SectionLabel>Catalogo</SectionLabel>
+          <View style={styles.grid}>
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} />
+            ))}
+          </View>
+          {!loading && products.length === 0 ? (
+            <LiquidCard style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Sin productos</Text>
+              <Text style={styles.emptyText}>Cuando cargues productos van a aparecer en esta seccion.</Text>
+            </LiquidCard>
+          ) : null}
+        </View>
+      </ScrollView>
+
+      {profile?.role === "owner" ? (
+        <Pressable onPress={() => setFormOpen(true)} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
+          <Plus color={colors.white} size={19} strokeWidth={2.5} />
+          <Text style={styles.fabText}>Agregar</Text>
+        </Pressable>
+      ) : null}
+
+      <Modal animationType="slide" transparent visible={formOpen} onRequestClose={closeForm}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closeForm} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <View>
+                <Text style={styles.sheetTitle}>Nuevo producto</Text>
+                <Text style={styles.sheetSubtitle}>Cargá foto, precio y clasificación</Text>
+              </View>
+              <Pressable onPress={closeForm} style={styles.closeButton}>
+                <X color={colors.violet} size={18} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+              <View style={styles.photoRow}>
+                <View style={styles.photoPreview}>
+                  {imageAsset ? (
+                    <Image source={{ uri: imageAsset.uri }} style={styles.photoPreviewImage} />
+                  ) : (
+                    <ImagePlus color="rgba(155,93,229,0.44)" size={34} strokeWidth={1.9} />
+                  )}
+                </View>
+                <View style={styles.photoActions}>
+                  <Pressable onPress={() => pickImage("camera")} style={styles.photoButton}>
+                    <Camera color={colors.violet} size={16} strokeWidth={2.4} />
+                    <Text style={styles.photoButtonText}>Cámara</Text>
+                  </Pressable>
+                  <Pressable onPress={() => pickImage("library")} style={styles.photoButton}>
+                    <ImagePlus color={colors.rose} size={16} strokeWidth={2.4} />
+                    <Text style={styles.photoButtonText}>Galería</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <FormField label="Nombre">
+                <TextInput
+                  onChangeText={(value) => setForm((current) => ({ ...current, name: value }))}
+                  placeholder="Remera básica oversize"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={form.name}
+                />
+              </FormField>
+
+              <View style={styles.formRow}>
+                <FormField label="Talle" style={styles.formHalf}>
+                  <TextInput
+                    autoCapitalize="characters"
+                    onChangeText={(value) => setForm((current) => ({ ...current, size: value }))}
+                    placeholder="M"
+                    placeholderTextColor="rgba(90,60,120,0.36)"
+                    style={styles.formInput}
+                    value={form.size}
+                  />
+                </FormField>
+                <FormField label="Subtipo" style={styles.formHalf}>
+                  <TextInput
+                    onChangeText={(value) => setForm((current) => ({ ...current, subcategory: value }))}
+                    placeholder="Remera"
+                    placeholderTextColor="rgba(90,60,120,0.36)"
+                    style={styles.formInput}
+                    value={form.subcategory}
+                  />
+                </FormField>
+              </View>
+
+              <View>
+                <Text style={styles.formLabel}>Categoría</Text>
+                <View style={styles.categoryPicker}>
+                  {categories
+                    .filter((item): item is { label: string; value: ProductCategory } => item.value !== "all")
+                    .map((item) => {
+                      const active = form.category === item.value;
+
+                      return (
+                        <Pressable
+                          key={item.value}
+                          onPress={() => setForm((current) => ({ ...current, category: item.value }))}
+                          style={({ pressed }) => [
+                            styles.categoryOption,
+                            active && styles.categoryOptionActive,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text style={[styles.categoryOptionText, active && styles.categoryOptionTextActive]}>
+                            {item.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                </View>
+              </View>
+
+              <View style={styles.formRow}>
+                <FormField label="Costo" style={styles.formHalf}>
+                  <TextInput
+                    inputMode="numeric"
+                    onChangeText={(value) => setForm((current) => ({ ...current, purchasePrice: value.replace(/\D/g, "") }))}
+                    placeholder="7000"
+                    placeholderTextColor="rgba(90,60,120,0.36)"
+                    style={styles.formInput}
+                    value={form.purchasePrice}
+                  />
+                </FormField>
+                <FormField label="Venta" style={styles.formHalf}>
+                  <TextInput
+                    inputMode="numeric"
+                    onChangeText={(value) => setForm((current) => ({ ...current, salePrice: value.replace(/\D/g, "") }))}
+                    placeholder="12000"
+                    placeholderTextColor="rgba(90,60,120,0.36)"
+                    style={styles.formInput}
+                    value={form.salePrice}
+                  />
+                </FormField>
+              </View>
+
+              <FormField label="Descripción">
+                <TextInput
+                  multiline
+                  onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
+                  placeholder="Detalle opcional"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={[styles.formInput, styles.textArea]}
+                  value={form.description}
+                />
+              </FormField>
+
+              {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+              <Pressable disabled={saving} onPress={createProduct} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
+                {saving ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <Save color={colors.white} size={17} strokeWidth={2.4} />
+                    <Text style={styles.saveButtonText}>Guardar producto</Text>
+                  </>
+                )}
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
+  );
+}
+
+function FormField({
+  children,
+  label,
+  style,
+}: {
+  children: ReactNode;
+  label: string;
+  style?: object;
+}) {
+  return (
+    <View style={[styles.formField, style]}>
+      <Text style={styles.formLabel}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function ProductCard({ product, showCost }: { product: Product; showCost: boolean }) {
+  const sold = product.status === "sold";
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!product.photoPath) {
+      setPhotoUrl(null);
+      return;
+    }
+
+    getProductPhotoUrl(product.photoPath)
+      .then((url) => {
+        if (mounted) {
+          setPhotoUrl(url);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setPhotoUrl(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [product.photoPath]);
+
+  return (
+    <LiquidCard style={[styles.productCard, sold && styles.soldCard]}>
+      <View style={styles.imageWrap}>
+        {photoUrl ? (
+          <Image source={{ uri: photoUrl }} style={styles.image} />
+        ) : (
+          <View style={styles.imagePlaceholder}>
+            <Shirt color="rgba(155,93,229,0.44)" size={30} strokeWidth={1.8} />
+          </View>
+        )}
+        {sold ? (
+          <View style={styles.soldOverlay}>
+            <GlassBadge label="Vendido" tone={colors.violet} />
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.productBody}>
+        <Text numberOfLines={2} style={styles.productName}>
+          {product.name}
+        </Text>
+        <View style={styles.badges}>
+          <GlassBadge label={categoryLabels[product.category]} tone={colors.violet} />
+          <GlassBadge label={`T: ${product.size}`} tone={colors.rose} />
+        </View>
+        {product.subcategory ? (
+          <View style={styles.subcategory}>
+            <Tag color="rgba(90,60,120,0.45)" size={12} strokeWidth={2.2} />
+            <Text numberOfLines={1} style={styles.subcategoryText}>
+              {product.subcategory}
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.priceRow}>
+          {showCost ? (
+            <View>
+              <Text style={styles.priceLabel}>Costo</Text>
+              <Text style={styles.costValue}>{formatMoney(product.purchasePrice ?? 0)}</Text>
+            </View>
+          ) : (
+            <Text style={styles.statusText}>{statusLabels[product.status]}</Text>
+          )}
+          <View style={styles.salePriceBox}>
+            <Text style={styles.priceLabel}>Venta</Text>
+            <Text style={styles.saleValue}>{formatMoney(product.salePrice)}</Text>
+          </View>
+        </View>
+      </View>
+    </LiquidCard>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  content: {
+    gap: 18,
+    paddingBottom: 126,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  header: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  title: {
+    color: colors.foreground,
+    fontSize: 26,
+    fontWeight: "900",
+    lineHeight: 31,
+  },
+  subtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  searchBox: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.36)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 50,
+    paddingHorizontal: 15,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  searchInput: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    minHeight: 46,
+  },
+  filters: {
+    gap: 8,
+    paddingRight: 20,
+  },
+  filterChip: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+  },
+  filterChipActive: {
+    backgroundColor: colors.violet,
+    borderColor: "rgba(255,255,255,0.42)",
+  },
+  filterText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  filterTextActive: {
+    color: colors.white,
+  },
+  pressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+  errorCard: {
+    borderColor: "rgba(224,82,113,0.24)",
+    padding: 16,
+  },
+  errorTitle: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  errorText: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  productCard: {
+    width: "47.9%",
+  },
+  soldCard: {
+    opacity: 0.72,
+  },
+  imageWrap: {
+    height: 126,
+    overflow: "hidden",
+  },
+  image: {
+    backgroundColor: "rgba(155,93,229,0.08)",
+    height: "100%",
+    width: "100%",
+  },
+  imagePlaceholder: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    height: "100%",
+    justifyContent: "center",
+    width: "100%",
+  },
+  soldOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.25)",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  productBody: {
+    padding: 12,
+  },
+  productName: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 17,
+    minHeight: 34,
+  },
+  badges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 8,
+  },
+  subcategory: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    marginTop: 8,
+  },
+  subcategoryText: {
+    color: colors.faint,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  priceRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  priceLabel: {
+    color: colors.faint,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  costValue: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  salePriceBox: {
+    alignItems: "flex-end",
+  },
+  saleValue: {
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  statusText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  emptyCard: {
+    padding: 18,
+  },
+  emptyTitle: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  fab: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderColor: "rgba(255,255,255,0.35)",
+    borderRadius: 999,
+    borderWidth: 1,
+    bottom: 92,
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 50,
+    paddingHorizontal: 18,
+    position: "absolute",
+    right: 20,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.45,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+  },
+  fabText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalBackdrop: {
+    backgroundColor: "rgba(20,10,35,0.52)",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  sheet: {
+    backgroundColor: "rgba(255,255,255,0.88)",
+    borderColor: "rgba(255,255,255,0.88)",
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    borderWidth: 1,
+    maxHeight: "92%",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.18,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -12 },
+    elevation: 20,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    backgroundColor: "rgba(155,93,229,0.24)",
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 16,
+    width: 42,
+  },
+  sheetHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    color: colors.foreground,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  sheetSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  closeButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.12)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  formContent: {
+    gap: 15,
+    paddingBottom: 28,
+  },
+  photoRow: {
+    flexDirection: "row",
+    gap: 14,
+  },
+  photoPreview: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 112,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 112,
+  },
+  photoPreviewImage: {
+    height: "100%",
+    width: "100%",
+  },
+  photoActions: {
+    flex: 1,
+    gap: 10,
+    justifyContent: "center",
+  },
+  photoButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.46)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 45,
+    paddingHorizontal: 13,
+  },
+  photoButtonText: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  formField: {
+    gap: 7,
+  },
+  formLabel: {
+    color: colors.foreground,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  formInput: {
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderColor: "rgba(255,255,255,0.78)",
+    borderRadius: 18,
+    borderWidth: 1,
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "700",
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  textArea: {
+    minHeight: 82,
+    paddingTop: 12,
+    textAlignVertical: "top",
+  },
+  formRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  formHalf: {
+    flex: 1,
+  },
+  categoryPicker: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  categoryOption: {
+    backgroundColor: "rgba(255,255,255,0.46)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  categoryOptionActive: {
+    backgroundColor: colors.violet,
+  },
+  categoryOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  categoryOptionTextActive: {
+    color: colors.white,
+  },
+  formError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  saveButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 21,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 52,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  saveButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+});
