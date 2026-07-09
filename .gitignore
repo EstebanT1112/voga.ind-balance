@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Environment
 .env
@@ -11,9 +12,14 @@ node_modules/
 dist/
 web-build/
 
+# Build outputs
+apps/*/dist/
+
 # Supabase
-.branches/
-.temp/
+supabase/.branches/
+supabase/.temp/
+supabase/functions/
+supabase/snippets/
 
 # Logs
 *.log

@@ -620,7 +620,7 @@ Aunque las reglas principales vivan en la API, se recomienda activar RLS para ev
 Estrategia inicial:
 
 - La app mobile opera datos sensibles mediante la API.
-- La API usa service role key en Edge Functions.
+- La API Express usa service role key en el backend desplegado en Render.
 - Las tablas de negocio no deberían permitir escritura directa desde el cliente mobile.
 - Storage puede permitir lectura autenticada de fotos y escritura controlada para `owner`.
 
