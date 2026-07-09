@@ -6,6 +6,7 @@ import type {
   ReportData,
   ReportFilters,
   ReturnReportRow,
+  SaleItemReportRow,
   SaleReportRow,
   SellerProfileReportRow,
 } from "./report.types.js";
@@ -52,6 +53,13 @@ export const reportRepository = {
       filters,
     );
 
+    const saleItemsQuery = supabaseAdmin
+      .from("sale_items")
+      .select(
+        "sale_id, product_id, product_name, product_size, product_category, product_subcategory, purchase_price, sale_price, status",
+      )
+      .eq("status", "sold");
+
     const paymentsQuery = applyDateRange(
       supabaseAdmin.from("payments").select("id, sale_id, amount, paid_at"),
       "paid_at",
@@ -79,6 +87,7 @@ export const reportRepository = {
       returnsResult,
       expensesResult,
       sellersResult,
+      saleItemsResult,
     ] = await Promise.all([
       confirmedItemsQuery.returns<ConfirmedSaleItemReportRow[]>(),
       salesQuery.returns<SaleReportRow[]>(),
@@ -86,6 +95,7 @@ export const reportRepository = {
       returnsQuery.returns<ReturnReportRow[]>(),
       expensesQuery.returns<ExpenseReportRow[]>(),
       sellersQuery.returns<SellerProfileReportRow[]>(),
+      saleItemsQuery.returns<SaleItemReportRow[]>(),
     ]);
 
     const firstError =
@@ -94,14 +104,35 @@ export const reportRepository = {
       paymentsResult.error ??
       returnsResult.error ??
       expensesResult.error ??
-      sellersResult.error;
+      sellersResult.error ??
+      saleItemsResult.error;
 
     if (firstError) {
       throw firstError;
     }
 
+    const salesById = new Map((salesResult.data ?? []).map((sale) => [sale.id, sale]));
+    const saleItems = (saleItemsResult.data ?? []).reduce<ConfirmedSaleItemReportRow[]>((items, item) => {
+        const sale = salesById.get(item.sale_id);
+
+        if (!sale) {
+          return items;
+        }
+
+        const { status: _status, ...saleItem } = item;
+
+        items.push({
+          ...saleItem,
+          sale_date: sale.sale_date,
+          seller_id: sale.seller_id,
+        });
+
+        return items;
+      }, []);
+
     return {
       confirmedItems: confirmedItemsResult.data ?? [],
+      saleItems,
       sales: salesResult.data ?? [],
       payments: paymentsResult.data ?? [],
       returns: returnsResult.data ?? [],

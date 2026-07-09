@@ -1,27 +1,25 @@
-import { useMemo, useState } from "react";
-import { Banknote, Home, Package, ReceiptText, ShoppingBag } from "lucide-react-native";
+import { useState } from "react";
+import { BarChart3, Home, Package, ShoppingBag } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { HomeScreen } from "../screens/HomeScreen";
-import { PlaceholderScreen } from "../screens/PlaceholderScreen";
+import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { ProductsScreen } from "../screens/ProductsScreen";
 import { SalesScreen } from "../screens/SalesScreen";
 import { colors } from "../theme/liquid";
 
-type Tab = "home" | "products" | "sales" | "payments" | "expenses";
+type Tab = "home" | "products" | "sales" | "analytics";
 
-const tabs: Array<{ id: Tab; label: string; mark: string; Icon: LucideIcon }> = [
-  { id: "home", label: "Home", mark: "H", Icon: Home },
-  { id: "products", label: "Catálogo", mark: "P", Icon: Package },
-  { id: "sales", label: "Ventas", mark: "V", Icon: ShoppingBag },
-  { id: "payments", label: "Pagos", mark: "$", Icon: Banknote },
-  { id: "expenses", label: "Gastos", mark: "G", Icon: ReceiptText },
+const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
+  { id: "home", label: "Home", Icon: Home },
+  { id: "products", label: "Catálogo", Icon: Package },
+  { id: "sales", label: "Ventas", Icon: ShoppingBag },
+  { id: "analytics", label: "Analíticas", Icon: BarChart3 },
 ];
 
 export function AppShell() {
   const [tab, setTab] = useState<Tab>("home");
-  const active = useMemo(() => tabs.find((item) => item.id === tab) ?? tabs[0]!, [tab]);
 
   return (
     <View style={styles.safeArea}>
@@ -35,8 +33,10 @@ export function AppShell() {
           <ProductsScreen />
         ) : tab === "sales" ? (
           <SalesScreen />
+        ) : tab === "analytics" ? (
+          <AnalyticsScreen />
         ) : (
-          <PlaceholderScreen Icon={active.Icon} label={active.label} mark={active.mark} />
+          null
         )}
       </View>
 

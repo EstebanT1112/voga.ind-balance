@@ -19,6 +19,18 @@ export interface ConfirmedSaleItemReportRow {
   sale_price: number;
 }
 
+export interface SaleItemReportRow {
+  sale_id: string;
+  product_id: string;
+  product_name: string;
+  product_size: string;
+  product_category: ProductCategory;
+  product_subcategory: string | null;
+  purchase_price: number;
+  sale_price: number;
+  status: "sold" | "returned" | "voided";
+}
+
 export interface SaleReportRow {
   id: string;
   seller_id: string;
@@ -58,6 +70,7 @@ export interface SellerProfileReportRow {
 
 export interface ReportData {
   confirmedItems: ConfirmedSaleItemReportRow[];
+  saleItems: ConfirmedSaleItemReportRow[];
   sales: SaleReportRow[];
   payments: PaymentReportRow[];
   returns: ReturnReportRow[];
@@ -95,7 +108,9 @@ export interface ApiReport {
     netProfitAfterExpenses: number;
   };
   topCategories: RankedReportItem[];
+  topSubcategories: RankedReportItem[];
   topSizes: RankedReportItem[];
+  topProducts: RankedReportItem[];
   expensesByCategory: ExpenseCategoryReportItem[];
   commissionsBySeller: SellerCommissionReportItem[];
 }

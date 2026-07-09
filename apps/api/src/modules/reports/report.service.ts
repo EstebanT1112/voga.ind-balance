@@ -155,8 +155,10 @@ export const reportService = {
         commissionAmount,
         netProfitAfterExpenses: collectedProfit - expensesAmount - commissionAmount,
       },
-      topCategories: rankItems(data.confirmedItems, (item) => item.product_category),
-      topSizes: rankItems(data.confirmedItems, (item) => item.product_size),
+      topCategories: rankItems(data.saleItems, (item) => item.product_category),
+      topSubcategories: rankItems(data.saleItems, (item) => item.product_subcategory ?? "Sin clasificar"),
+      topSizes: rankItems(data.saleItems, (item) => item.product_size),
+      topProducts: rankItems(data.saleItems, (item) => item.product_name),
       expensesByCategory: groupExpensesByCategory(data.expenses),
       commissionsBySeller,
     };
