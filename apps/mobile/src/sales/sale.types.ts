@@ -47,6 +47,7 @@ export interface SalesResponse {
 }
 
 export interface CreateSaleInput {
+  sellerId?: string;
   buyerFullName: string;
   buyerPhone: string;
   productIds: string[];

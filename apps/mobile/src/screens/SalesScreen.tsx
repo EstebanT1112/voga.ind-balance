@@ -21,6 +21,7 @@ import {
   Phone,
   Plus,
   ReceiptText,
+  RotateCcw,
   Search,
   Shirt,
   ShoppingBag,
@@ -33,6 +34,7 @@ import { GlassBadge, LiquidCard, SectionLabel } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import { getProductPhotoUrl } from "../products/productPhotos";
 import type { Product, ProductCategory, ProductsResponse } from "../products/product.types";
+import type { ApiProfile, UsersResponse } from "../reports/report.types";
 import type { CreateSaleInput, PaymentStatus, Sale, SalesResponse } from "../sales/sale.types";
 import { colors, formatMoney } from "../theme/liquid";
 
@@ -63,6 +65,7 @@ const initialForm = {
   buyerFullName: "",
   buyerPhone: "",
   initialPaymentAmount: "",
+  sellerId: "",
 };
 
 function formatDate(value: string): string {
@@ -70,6 +73,23 @@ function formatDate(value: string): string {
     day: "2-digit",
     month: "short",
   }).format(new Date(value));
+}
+
+function getInitials(fullName: string): string {
+  return fullName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function getDaysFromToday(value: string): number {
+  const start = new Date(value);
+  const today = new Date();
+  const diff = today.getTime() - start.getTime();
+
+  return Math.max(0, Math.floor(diff / 86_400_000));
 }
 
 export function SalesScreen() {
@@ -86,7 +106,9 @@ export function SalesScreen() {
   const [salesTab, setSalesTab] = useState<SalesTab>("new");
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [sellers, setSellers] = useState<ApiProfile[]>([]);
 
   const loadSales = useCallback(async () => {
     if (!session) {
@@ -132,10 +154,25 @@ export function SalesScreen() {
     }
   }, [session]);
 
+  const loadSellers = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    const response = await apiRequest<UsersResponse>("/users?role=seller&active=true", {
+      method: "GET",
+      session,
+    });
+
+    setSellers(response.items);
+    setForm((current) => (current.sellerId || response.items.length === 0 ? current : { ...current, sellerId: response.items[0]!.id }));
+  }, [session]);
+
   useEffect(() => {
     loadSales();
     loadAvailableProducts();
-  }, [loadAvailableProducts, loadSales]);
+    loadSellers();
+  }, [loadAvailableProducts, loadSales, loadSellers]);
 
   const selectedProducts = useMemo(
     () => availableProducts.filter((product) => selectedProductIds.includes(product.id)),
@@ -216,6 +253,7 @@ export function SalesScreen() {
         buyerPhone: form.buyerPhone.trim(),
         initialPaymentAmount,
         productIds: selectedProductIds,
+        sellerId: form.sellerId || undefined,
       };
 
       await apiRequest<{ item: Sale }>("/sales", {
@@ -234,6 +272,10 @@ export function SalesScreen() {
       setSaving(false);
     }
   };
+
+  if (selectedSale) {
+    return <SaleDetail sale={selectedSale} seller={sellers.find((seller) => seller.id === selectedSale.sellerId)} onBack={() => setSelectedSale(null)} />;
+  }
 
   return (
     <View style={styles.root}>
@@ -283,7 +325,13 @@ export function SalesScreen() {
             toggleProduct={toggleProduct}
           />
         ) : (
-          <HistoryContent errorMessage={errorMessage} loading={loading} sales={sales} />
+          <HistoryContent
+            errorMessage={errorMessage}
+            loading={loading}
+            onSalePress={setSelectedSale}
+            sales={sales}
+            sellers={sellers}
+          />
         )}
       </ScrollView>
 
@@ -354,6 +402,30 @@ export function SalesScreen() {
                   value={form.initialPaymentAmount}
                 />
               </FormField>
+
+              <View>
+                <Text style={styles.formLabel}>Vendedora</Text>
+                <View style={styles.sellerPicker}>
+                  {sellers.map((seller) => {
+                    const active = form.sellerId === seller.id;
+                    const color = seller.color ?? colors.violet;
+
+                    return (
+                      <Pressable
+                        key={seller.id}
+                        onPress={() => setForm((current) => ({ ...current, sellerId: seller.id }))}
+                        style={({ pressed }) => [styles.sellerOption, active && styles.sellerOptionActive, pressed && styles.pressed]}
+                      >
+                        <Avatar color={color} initials={getInitials(seller.fullName)} size={26} />
+                        <Text numberOfLines={1} style={[styles.sellerOptionText, active && styles.sellerOptionTextActive]}>
+                          {seller.fullName}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                  {sellers.length === 0 ? <Text style={styles.noSellers}>Sin vendedoras activas.</Text> : null}
+                </View>
+              </View>
 
               {form.initialPaymentAmount !== "" ? (
                 <View style={styles.statusPreview}>
@@ -468,7 +540,19 @@ function NewSaleContent({
   );
 }
 
-function HistoryContent({ errorMessage, loading, sales }: { errorMessage: string | null; loading: boolean; sales: Sale[] }) {
+function HistoryContent({
+  errorMessage,
+  loading,
+  onSalePress,
+  sales,
+  sellers,
+}: {
+  errorMessage: string | null;
+  loading: boolean;
+  onSalePress: (sale: Sale) => void;
+  sales: Sale[];
+  sellers: ApiProfile[];
+}) {
   return (
     <>
       {errorMessage ? (
@@ -481,9 +565,11 @@ function HistoryContent({ errorMessage, loading, sales }: { errorMessage: string
       <View>
         <SectionLabel>Ventas realizadas</SectionLabel>
         <View style={styles.salesList}>
-          {sales.map((sale) => (
-            <SaleCard key={sale.id} sale={sale} />
-          ))}
+          {sales.map((sale) => {
+            const seller = sellers.find((item) => item.id === sale.sellerId);
+
+            return <SaleCard key={sale.id} sale={sale} seller={seller} onPress={() => onSalePress(sale)} />;
+          })}
         </View>
         {!loading && sales.length === 0 ? (
           <LiquidCard style={styles.emptyCard}>
@@ -492,6 +578,24 @@ function HistoryContent({ errorMessage, loading, sales }: { errorMessage: string
         ) : null}
       </View>
     </>
+  );
+}
+
+function Avatar({ color, initials, size }: { color: string; initials: string; size: number }) {
+  return (
+    <View
+      style={[
+        styles.avatar,
+        {
+          backgroundColor: color,
+          borderRadius: size / 2,
+          height: size,
+          width: size,
+        },
+      ]}
+    >
+      <Text style={[styles.avatarText, { fontSize: Math.max(10, size * 0.32) }]}>{initials}</Text>
+    </View>
   );
 }
 
@@ -624,10 +728,12 @@ function FormField({
   );
 }
 
-function SaleCard({ sale }: { sale: Sale }) {
+function SaleCard({ onPress, sale, seller }: { onPress: () => void; sale: Sale; seller?: ApiProfile }) {
+  const sellerColor = seller?.color ?? colors.violet;
+
   return (
-    <LiquidCard style={styles.saleCard}>
-      <View style={styles.saleStripe} />
+    <LiquidCard onPress={onPress} style={styles.saleCard}>
+      <View style={[styles.saleStripe, { backgroundColor: sellerColor }]} />
       <View style={styles.saleBody}>
         <View style={styles.saleHeader}>
           <Text numberOfLines={1} style={styles.buyerName}>
@@ -639,15 +745,120 @@ function SaleCard({ sale }: { sale: Sale }) {
           {sale.items.map((item) => item.productName).join(", ")}
         </Text>
         <View style={styles.saleFooter}>
-          <View style={styles.datePill}>
-            <ReceiptText color="rgba(155,93,229,0.5)" size={13} strokeWidth={2.2} />
-            <Text style={styles.dateText}>{formatDate(sale.saleDate)}</Text>
+          <View style={styles.sellerMini}>
+            <Avatar color={sellerColor} initials={getInitials(seller?.fullName ?? "V")} size={20} />
+            <Text numberOfLines={1} style={styles.sellerMiniText}>
+              {(seller?.fullName ?? "Vendedora").split(" ")[0]}
+            </Text>
           </View>
           <GlassBadge label={paymentLabels[sale.paymentStatus]} tone={paymentTones[sale.paymentStatus]} />
           <ChevronRight color="rgba(155,93,229,0.35)" size={15} strokeWidth={2.4} />
         </View>
       </View>
     </LiquidCard>
+  );
+}
+
+function SaleDetail({ onBack, sale, seller }: { onBack: () => void; sale: Sale; seller?: ApiProfile }) {
+  const sellerColor = seller?.color ?? colors.violet;
+  const age = getDaysFromToday(sale.saleDate);
+  const inReturnWindow = new Date(sale.returnDeadline).getTime() >= Date.now();
+
+  return (
+    <ScrollView contentContainerStyle={styles.detailContent}>
+      <View style={styles.detailHeader}>
+        <Pressable onPress={onBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+          <ChevronRight color={colors.violet} size={17} strokeWidth={2.4} style={styles.backIcon} />
+        </Pressable>
+        <View>
+          <Text style={styles.detailTitle}>Venta #{sale.id.slice(0, 8)}</Text>
+          <Text style={styles.detailDate}>{formatDate(sale.saleDate)}</Text>
+        </View>
+      </View>
+
+      <DetailSection title="Comprador">
+        <View style={styles.detailStack}>
+          <View style={styles.detailLine}>
+            <User color={colors.violet} size={14} strokeWidth={2.4} />
+            <Text style={styles.detailStrong}>{sale.buyerFullName}</Text>
+          </View>
+          <View style={styles.detailLine}>
+            <Phone color="rgba(90,60,120,0.45)" size={14} strokeWidth={2.4} />
+            <Text style={styles.detailMuted}>{sale.buyerPhone}</Text>
+          </View>
+        </View>
+      </DetailSection>
+
+      <DetailSection title="Vendedora">
+        <View style={styles.detailLine}>
+          <Avatar color={sellerColor} initials={getInitials(seller?.fullName ?? "V")} size={36} />
+          <Text style={styles.detailStrong}>{seller?.fullName ?? "Vendedora"}</Text>
+        </View>
+      </DetailSection>
+
+      <DetailSection title="Estado de pago">
+        <View style={styles.detailStack}>
+          <AmountLine color={colors.foreground} label="Total" value={sale.totalAmount} />
+          <AmountLine color={colors.mint} label="Cobrado" value={sale.paidAmount} />
+          <AmountLine color={colors.red} label="Pendiente" value={sale.pendingAmount} />
+          <View style={styles.badgeRow}>
+            <GlassBadge label={paymentLabels[sale.paymentStatus]} tone={paymentTones[sale.paymentStatus]} />
+            {sale.paymentStatus === "overdue" ? <GlassBadge label="Vencida +30d" tone={colors.red} /> : null}
+          </View>
+        </View>
+      </DetailSection>
+
+      <DetailSection title="Productos">
+        <View style={styles.detailStack}>
+          {sale.items.map((item) => (
+            <View key={item.id} style={styles.detailProductRow}>
+              <View style={styles.detailProductThumb}>
+                <Shirt color="rgba(155,93,229,0.42)" size={18} strokeWidth={1.8} />
+              </View>
+              <View style={styles.detailProductInfo}>
+                <Text numberOfLines={1} style={styles.detailProductName}>
+                  {item.productName}
+                </Text>
+                <Text style={styles.detailMuted}>Talle {item.productSize}</Text>
+              </View>
+              <Text style={styles.detailProductPrice}>{formatMoney(item.salePrice)}</Text>
+            </View>
+          ))}
+        </View>
+      </DetailSection>
+
+      <DetailSection title="Devolución">
+        <View style={styles.returnRow}>
+          <Text style={styles.detailMuted}>{inReturnWindow ? `Dentro del plazo (${age}d)` : `Fuera de plazo (${age}d)`}</Text>
+          {inReturnWindow ? (
+            <Pressable style={({ pressed }) => [styles.returnButton, pressed && styles.pressed]}>
+              <RotateCcw color={colors.white} size={13} strokeWidth={2.5} />
+              <Text style={styles.returnButtonText}>Gestionar</Text>
+            </Pressable>
+          ) : (
+            <GlassBadge label="Sin devolución" tone="rgba(90,60,120,0.5)" />
+          )}
+        </View>
+      </DetailSection>
+    </ScrollView>
+  );
+}
+
+function DetailSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <LiquidCard style={styles.detailCard}>
+      <SectionLabel>{title}</SectionLabel>
+      {children}
+    </LiquidCard>
+  );
+}
+
+function AmountLine({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <View style={styles.amountLine}>
+      <Text style={styles.detailMuted}>{label}</Text>
+      <Text style={[styles.amountLineValue, { color }]}>{formatMoney(value)}</Text>
+    </View>
   );
 }
 
@@ -913,6 +1124,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
+  sellerMini: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
+  },
+  sellerMiniText: {
+    color: colors.faint,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  avatar: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: colors.white,
+    fontWeight: "900",
+  },
   emptyCard: {
     padding: 18,
   },
@@ -1069,6 +1300,38 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 13,
   },
+  sellerPicker: {
+    gap: 8,
+  },
+  sellerOption: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.46)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 9,
+    minHeight: 46,
+    paddingHorizontal: 12,
+  },
+  sellerOptionActive: {
+    backgroundColor: "rgba(155,93,229,0.12)",
+    borderColor: "rgba(155,93,229,0.24)",
+  },
+  sellerOptionText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  sellerOptionTextActive: {
+    color: colors.foreground,
+  },
+  noSellers: {
+    color: colors.faint,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   formInput: {
     color: colors.foreground,
     flex: 1,
@@ -1118,5 +1381,121 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.8,
     transform: [{ scale: 0.98 }],
+  },
+  detailContent: {
+    gap: 16,
+    paddingBottom: 112,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  detailHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
+  backButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  backIcon: {
+    transform: [{ rotate: "180deg" }],
+  },
+  detailTitle: {
+    color: colors.foreground,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  detailDate: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  detailCard: {
+    padding: 16,
+  },
+  detailStack: {
+    gap: 10,
+  },
+  detailLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+  },
+  detailStrong: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  detailMuted: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  amountLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  amountLineValue: {
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: 2,
+  },
+  detailProductRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  detailProductThumb: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderRadius: 14,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  detailProductInfo: {
+    flex: 1,
+  },
+  detailProductName: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  detailProductPrice: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  returnRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  returnButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 13,
+  },
+  returnButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: "900",
   },
 });
