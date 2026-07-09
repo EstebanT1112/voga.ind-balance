@@ -17,6 +17,7 @@ import {
 import {
   CheckCircle2,
   ChevronRight,
+  CreditCard,
   DollarSign,
   Phone,
   Plus,
@@ -35,7 +36,8 @@ import { apiRequest } from "../lib/api";
 import { getProductPhotoUrl } from "../products/productPhotos";
 import type { Product, ProductCategory, ProductsResponse } from "../products/product.types";
 import type { ApiProfile, UsersResponse } from "../reports/report.types";
-import type { CreateSaleInput, PaymentStatus, Sale, SalesResponse } from "../sales/sale.types";
+import type { Payment, PaymentsResponse } from "../payments/payment.types";
+import type { CreateSaleInput, PaymentStatus, Sale, SaleItem, SalesResponse } from "../sales/sale.types";
 import { colors, formatMoney } from "../theme/liquid";
 
 type SalesTab = "new" | "history";
@@ -68,10 +70,23 @@ const initialForm = {
   sellerId: "",
 };
 
+const initialPaymentForm = {
+  amount: "",
+  note: "",
+};
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
     month: "short",
+  }).format(new Date(value));
+}
+
+function formatFullDate(value: string): string {
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   }).format(new Date(value));
 }
 
@@ -159,13 +174,16 @@ export function SalesScreen() {
       return;
     }
 
-    const response = await apiRequest<UsersResponse>("/users?role=seller&active=true", {
+    const response = await apiRequest<UsersResponse>("/users?active=true", {
       method: "GET",
       session,
     });
+    const activeSellers = response.items.filter((item) => item.role === "seller");
 
     setSellers(response.items);
-    setForm((current) => (current.sellerId || response.items.length === 0 ? current : { ...current, sellerId: response.items[0]!.id }));
+    setForm((current) =>
+      current.sellerId || activeSellers.length === 0 ? current : { ...current, sellerId: activeSellers[0]!.id },
+    );
   }, [session]);
 
   useEffect(() => {
@@ -274,7 +292,18 @@ export function SalesScreen() {
   };
 
   if (selectedSale) {
-    return <SaleDetail sale={selectedSale} seller={sellers.find((seller) => seller.id === selectedSale.sellerId)} onBack={() => setSelectedSale(null)} />;
+    return (
+      <SaleDetail
+        sale={selectedSale}
+        seller={sellers.find((seller) => seller.id === selectedSale.sellerId)}
+        session={session}
+        onBack={() => setSelectedSale(null)}
+        onSaleUpdated={(sale) => {
+          setSelectedSale(sale);
+          setSales((current) => current.map((item) => (item.id === sale.id ? sale : item)));
+        }}
+      />
+    );
   }
 
   return (
@@ -406,24 +435,28 @@ export function SalesScreen() {
               <View>
                 <Text style={styles.formLabel}>Vendedora</Text>
                 <View style={styles.sellerPicker}>
-                  {sellers.map((seller) => {
-                    const active = form.sellerId === seller.id;
-                    const color = seller.color ?? colors.violet;
+                  {sellers
+                    .filter((seller) => seller.role === "seller")
+                    .map((seller) => {
+                      const active = form.sellerId === seller.id;
+                      const color = seller.color ?? colors.violet;
 
-                    return (
-                      <Pressable
-                        key={seller.id}
-                        onPress={() => setForm((current) => ({ ...current, sellerId: seller.id }))}
-                        style={({ pressed }) => [styles.sellerOption, active && styles.sellerOptionActive, pressed && styles.pressed]}
-                      >
-                        <Avatar color={color} initials={getInitials(seller.fullName)} size={26} />
-                        <Text numberOfLines={1} style={[styles.sellerOptionText, active && styles.sellerOptionTextActive]}>
-                          {seller.fullName}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                  {sellers.length === 0 ? <Text style={styles.noSellers}>Sin vendedoras activas.</Text> : null}
+                      return (
+                        <Pressable
+                          key={seller.id}
+                          onPress={() => setForm((current) => ({ ...current, sellerId: seller.id }))}
+                          style={({ pressed }) => [styles.sellerOption, active && styles.sellerOptionActive, pressed && styles.pressed]}
+                        >
+                          <Avatar color={color} initials={getInitials(seller.fullName)} size={26} />
+                          <Text numberOfLines={1} style={[styles.sellerOptionText, active && styles.sellerOptionTextActive]}>
+                            {seller.fullName}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  {sellers.filter((seller) => seller.role === "seller").length === 0 ? (
+                    <Text style={styles.noSellers}>Sin vendedoras activas.</Text>
+                  ) : null}
                 </View>
               </View>
 
@@ -759,10 +792,108 @@ function SaleCard({ onPress, sale, seller }: { onPress: () => void; sale: Sale; 
   );
 }
 
-function SaleDetail({ onBack, sale, seller }: { onBack: () => void; sale: Sale; seller?: ApiProfile }) {
+function SaleDetail({
+  onBack,
+  onSaleUpdated,
+  sale,
+  seller,
+  session,
+}: {
+  onBack: () => void;
+  onSaleUpdated: (sale: Sale) => void;
+  sale: Sale;
+  seller?: ApiProfile;
+  session: ReturnType<typeof useAuth>["session"];
+}) {
   const sellerColor = seller?.color ?? colors.violet;
   const age = getDaysFromToday(sale.saleDate);
   const inReturnWindow = new Date(sale.returnDeadline).getTime() >= Date.now();
+  const [paymentForm, setPaymentForm] = useState(initialPaymentForm);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentSaving, setPaymentSaving] = useState(false);
+
+  const loadPayments = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setPaymentsLoading(true);
+
+    try {
+      const response = await apiRequest<PaymentsResponse>(`/payments?saleId=${sale.id}`, {
+        method: "GET",
+        session,
+      });
+
+      setPayments(response.items);
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }, [sale.id, session]);
+
+  useEffect(() => {
+    loadPayments();
+  }, [loadPayments]);
+
+  const closePayment = () => {
+    if (paymentSaving) {
+      return;
+    }
+
+    setPaymentOpen(false);
+    setPaymentError(null);
+    setPaymentForm(initialPaymentForm);
+  };
+
+  const registerPayment = async () => {
+    if (!session) {
+      return;
+    }
+
+    const amount = Number.parseInt(paymentForm.amount || "0", 10);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPaymentError("Ingresá un monto válido.");
+      return;
+    }
+
+    if (amount > sale.pendingAmount) {
+      setPaymentError("El pago no puede superar el saldo pendiente.");
+      return;
+    }
+
+    setPaymentSaving(true);
+    setPaymentError(null);
+
+    try {
+      await apiRequest("/payments", {
+        body: {
+          amount,
+          note: paymentForm.note.trim() || null,
+          saleId: sale.id,
+        },
+        method: "POST",
+        session,
+      });
+
+      const response = await apiRequest<{ item: Sale }>(`/sales/${sale.id}`, {
+        method: "GET",
+        session,
+      });
+
+      await loadPayments();
+      onSaleUpdated(response.item);
+      setPaymentOpen(false);
+      setPaymentForm(initialPaymentForm);
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : "No se pudo registrar el pago");
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.detailContent}>
@@ -791,8 +922,8 @@ function SaleDetail({ onBack, sale, seller }: { onBack: () => void; sale: Sale; 
 
       <DetailSection title="Vendedora">
         <View style={styles.detailLine}>
-          <Avatar color={sellerColor} initials={getInitials(seller?.fullName ?? "V")} size={36} />
-          <Text style={styles.detailStrong}>{seller?.fullName ?? "Vendedora"}</Text>
+          <Avatar color={sellerColor} initials={getInitials(seller?.fullName ?? "SA")} size={36} />
+          <Text style={styles.detailStrong}>{seller?.fullName ?? "Sin vendedora asignada"}</Text>
         </View>
       </DetailSection>
 
@@ -805,24 +936,29 @@ function SaleDetail({ onBack, sale, seller }: { onBack: () => void; sale: Sale; 
             <GlassBadge label={paymentLabels[sale.paymentStatus]} tone={paymentTones[sale.paymentStatus]} />
             {sale.paymentStatus === "overdue" ? <GlassBadge label="Vencida +30d" tone={colors.red} /> : null}
           </View>
+          {sale.pendingAmount > 0 ? (
+            <Pressable onPress={() => setPaymentOpen(true)} style={({ pressed }) => [styles.paymentButton, pressed && styles.pressed]}>
+              <CreditCard color={colors.white} size={15} strokeWidth={2.4} />
+              <Text style={styles.paymentButtonText}>Registrar pago</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </DetailSection>
+
+      <DetailSection title="Pagos">
+        <View style={styles.detailStack}>
+          {paymentsLoading ? <ActivityIndicator color={colors.violet} /> : null}
+          {!paymentsLoading && payments.length === 0 ? <Text style={styles.detailMuted}>Todavia no hay pagos registrados.</Text> : null}
+          {payments.map((payment) => (
+            <PaymentRow key={payment.id} payment={payment} />
+          ))}
         </View>
       </DetailSection>
 
       <DetailSection title="Productos">
         <View style={styles.detailStack}>
           {sale.items.map((item) => (
-            <View key={item.id} style={styles.detailProductRow}>
-              <View style={styles.detailProductThumb}>
-                <Shirt color="rgba(155,93,229,0.42)" size={18} strokeWidth={1.8} />
-              </View>
-              <View style={styles.detailProductInfo}>
-                <Text numberOfLines={1} style={styles.detailProductName}>
-                  {item.productName}
-                </Text>
-                <Text style={styles.detailMuted}>Talle {item.productSize}</Text>
-              </View>
-              <Text style={styles.detailProductPrice}>{formatMoney(item.salePrice)}</Text>
-            </View>
+            <SaleDetailProductRow key={item.id} item={item} session={session} />
           ))}
         </View>
       </DetailSection>
@@ -840,7 +976,137 @@ function SaleDetail({ onBack, sale, seller }: { onBack: () => void; sale: Sale; 
           )}
         </View>
       </DetailSection>
+
+      <Modal animationType="slide" transparent visible={paymentOpen} onRequestClose={closePayment}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closePayment} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Registrar pago</Text>
+              <Pressable onPress={closePayment} style={styles.closeButton}>
+                <X color={colors.violet} size={18} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+
+            <View style={styles.formContent}>
+              <View style={styles.paymentSummary}>
+                <AmountLine color={colors.foreground} label="Total" value={sale.totalAmount} />
+                <AmountLine color={colors.mint} label="Cobrado" value={sale.paidAmount} />
+                <AmountLine color={colors.red} label="Pendiente" value={sale.pendingAmount} />
+              </View>
+
+              <FormField Icon={DollarSign} label="Monto">
+                <TextInput
+                  inputMode="numeric"
+                  onChangeText={(value) => setPaymentForm((current) => ({ ...current, amount: value.replace(/\D/g, "") }))}
+                  placeholder="0"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={paymentForm.amount}
+                />
+              </FormField>
+
+              <FormField Icon={ReceiptText} label="Nota">
+                <TextInput
+                  onChangeText={(value) => setPaymentForm((current) => ({ ...current, note: value }))}
+                  placeholder="Opcional"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={paymentForm.note}
+                />
+              </FormField>
+
+              {paymentError ? <Text style={styles.formError}>{paymentError}</Text> : null}
+
+              <Pressable disabled={paymentSaving} onPress={registerPayment} style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
+                {paymentSaving ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Guardar pago</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
+  );
+}
+
+function PaymentRow({ payment }: { payment: Payment }) {
+  return (
+    <View style={styles.paymentRow}>
+      <View style={styles.paymentIcon}>
+        <CreditCard color={colors.violet} size={15} strokeWidth={2.4} />
+      </View>
+      <View style={styles.paymentInfo}>
+        <Text style={styles.paymentKind}>{payment.kind === "initial" ? "Pago inicial" : "Pago posterior"}</Text>
+        <Text style={styles.paymentDate}>{formatFullDate(payment.paidAt)}</Text>
+        {payment.note ? <Text style={styles.paymentNote}>{payment.note}</Text> : null}
+      </View>
+      <Text style={styles.paymentAmount}>{formatMoney(payment.amount)}</Text>
+    </View>
+  );
+}
+
+function SaleDetailProductRow({ item, session }: { item: SaleItem; session: ReturnType<typeof useAuth>["session"] }) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPhoto() {
+      if (!session) {
+        return;
+      }
+
+      try {
+        const response = await apiRequest<{ item: Product }>(`/products/${item.productId}`, {
+          method: "GET",
+          session,
+        });
+
+        if (!response.item.photoPath) {
+          return;
+        }
+
+        const url = await getProductPhotoUrl(response.item.photoPath);
+
+        if (active) {
+          setPhotoUrl(url);
+        }
+      } catch {
+        if (active) {
+          setPhotoUrl(null);
+        }
+      }
+    }
+
+    loadPhoto();
+
+    return () => {
+      active = false;
+    };
+  }, [item.productId, session]);
+
+  return (
+    <View style={styles.detailProductRow}>
+      <View style={styles.detailProductThumb}>
+        {photoUrl ? (
+          <Image source={{ uri: photoUrl }} style={styles.productImage} />
+        ) : (
+          <Shirt color="rgba(155,93,229,0.42)" size={18} strokeWidth={1.8} />
+        )}
+      </View>
+      <View style={styles.detailProductInfo}>
+        <Text numberOfLines={1} style={styles.detailProductName}>
+          {item.productName}
+        </Text>
+        <Text style={styles.detailMuted}>Talle {item.productSize}</Text>
+      </View>
+      <Text style={styles.detailProductPrice}>{formatMoney(item.salePrice)}</Text>
+    </View>
   );
 }
 
@@ -1453,6 +1719,76 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingTop: 2,
   },
+  paymentButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.violet,
+    borderRadius: 16,
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  paymentButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  paymentSummary: {
+    backgroundColor: "rgba(155,93,229,0.07)",
+    borderColor: "rgba(155,93,229,0.12)",
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14,
+  },
+  paymentRow: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.06)",
+    borderColor: "rgba(155,93,229,0.1)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 12,
+  },
+  paymentIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.11)",
+    borderRadius: 999,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  paymentInfo: {
+    flex: 1,
+  },
+  paymentKind: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  paymentDate: {
+    color: colors.faint,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  paymentNote: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  paymentAmount: {
+    color: colors.mint,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   detailProductRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -1464,6 +1800,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     height: 40,
     justifyContent: "center",
+    overflow: "hidden",
     width: 40,
   },
   detailProductInfo: {
