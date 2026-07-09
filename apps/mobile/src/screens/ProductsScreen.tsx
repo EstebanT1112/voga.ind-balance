@@ -141,12 +141,14 @@ export function ProductsScreen() {
         ? await ImagePicker.launchCameraAsync({
             allowsEditing: true,
             aspect: [1, 1],
+            base64: true,
             quality: 0.82,
           })
         : await ImagePicker.launchImageLibraryAsync({
             allowsEditing: true,
             aspect: [1, 1],
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            base64: true,
+            mediaTypes: ["images"],
             quality: 0.82,
           });
 
@@ -177,7 +179,18 @@ export function ProductsScreen() {
     setFormError(null);
 
     try {
-      const photoPath = imageAsset ? await uploadProductPhoto(imageAsset, profile.id) : null;
+      let photoPath: string | null = null;
+
+      if (imageAsset) {
+        try {
+          photoPath = await uploadProductPhoto(imageAsset, profile.id);
+        } catch (error) {
+          throw new Error(
+            error instanceof Error ? `No se pudo subir la foto: ${error.message}` : "No se pudo subir la foto",
+          );
+        }
+      }
+
       const payload: CreateProductInput = {
         category: form.category,
         description: form.description.trim() || null,

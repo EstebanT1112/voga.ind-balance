@@ -21,13 +21,27 @@ function getExtension(asset: ImagePickerAsset): string {
   return "jpg";
 }
 
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = globalThis.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes.buffer;
+}
+
 export async function uploadProductPhoto(asset: ImagePickerAsset, userId: string): Promise<string> {
+  if (!asset.base64) {
+    throw new Error("No se pudo leer la imagen seleccionada. Volvé a elegir la foto e intentá de nuevo.");
+  }
+
   const extension = getExtension(asset);
   const path = `products/${userId}/${Date.now()}.${extension}`;
-  const response = await fetch(asset.uri);
-  const blob = await response.blob();
+  const fileBody = base64ToArrayBuffer(asset.base64);
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+  const { error } = await supabase.storage.from(BUCKET).upload(path, fileBody, {
     cacheControl: "3600",
     contentType: asset.mimeType ?? `image/${extension}`,
     upsert: false,
