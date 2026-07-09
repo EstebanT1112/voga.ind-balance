@@ -1,0 +1,15 @@
+{
+  "name": "voga-ind-balance",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Monorepo for voga.ind balance.",
+  "scripts": {
+    "mobile": "pnpm --filter mobile start",
+    "mobile:android": "pnpm --filter mobile android",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "supabase:functions:serve": "supabase functions serve api",
+    "supabase:db:reset": "supabase db reset"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
