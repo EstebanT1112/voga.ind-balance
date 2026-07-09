@@ -13,7 +13,7 @@ type Tab = "home" | "products" | "sales" | "payments" | "expenses";
 
 const tabs: Array<{ id: Tab; label: string; mark: string; Icon: LucideIcon }> = [
   { id: "home", label: "Home", mark: "H", Icon: Home },
-  { id: "products", label: "Productos", mark: "P", Icon: Package },
+  { id: "products", label: "Catálogo", mark: "P", Icon: Package },
   { id: "sales", label: "Ventas", mark: "V", Icon: ShoppingBag },
   { id: "payments", label: "Pagos", mark: "$", Icon: Banknote },
   { id: "expenses", label: "Gastos", mark: "G", Icon: ReceiptText },

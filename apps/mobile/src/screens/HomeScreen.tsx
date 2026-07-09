@@ -109,7 +109,7 @@ export function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.month}>{month.label}</Text>
-          <Text style={styles.title}>Hola, Dueña</Text>
+          <Text style={styles.title}>Hola, {profile?.fullName ?? "Dueña"}</Text>
           <Text style={styles.subtitle}>Tu resumen del mes</Text>
         </View>
         <Pressable onPress={signOut} style={styles.logout}>

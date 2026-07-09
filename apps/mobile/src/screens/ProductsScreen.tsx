@@ -16,9 +16,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Camera, ImagePlus, Package, Plus, Save, Search, Shirt, Tag, X } from "lucide-react-native";
+import { Camera, FileText, ImagePlus, Plus, Ruler, Save, Search, Shirt, Tag, X } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
-import { GlassBadge, IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
+import { GlassBadge, LiquidCard } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import { getProductPhotoUrl, uploadProductPhoto } from "../products/productPhotos";
 import type { CreateProductInput, Product, ProductCategory, ProductStatus, ProductsResponse } from "../products/product.types";
@@ -226,13 +227,10 @@ export function ProductsScreen() {
         refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadProducts} />}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Productos</Text>
-            <Text style={styles.subtitle}>
-              {totals.available} disponibles · {totals.sold} vendidos
-            </Text>
-          </View>
-          <IconBubble Icon={Package} tone={colors.violet} />
+          <Text style={styles.title}>Catálogo</Text>
+          <Text style={styles.subtitle}>
+            {totals.available} disponibles · {totals.sold} vendidos
+          </Text>
         </View>
 
         <View style={styles.searchBox}>
@@ -271,13 +269,10 @@ export function ProductsScreen() {
           </LiquidCard>
         ) : null}
 
-        <View>
-          <SectionLabel>Catalogo</SectionLabel>
-          <View style={styles.grid}>
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} />
-            ))}
-          </View>
+        <View style={styles.grid}>
+          {products.map((product) => (
+            <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} />
+          ))}
           {!loading && products.length === 0 ? (
             <LiquidCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Sin productos</Text>
@@ -310,27 +305,22 @@ export function ProductsScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
-              <View style={styles.photoRow}>
-                <View style={styles.photoPreview}>
-                  {imageAsset ? (
-                    <Image source={{ uri: imageAsset.uri }} style={styles.photoPreviewImage} />
-                  ) : (
-                    <ImagePlus color="rgba(155,93,229,0.44)" size={34} strokeWidth={1.9} />
-                  )}
-                </View>
-                <View style={styles.photoActions}>
-                  <Pressable onPress={() => pickImage("camera")} style={styles.photoButton}>
-                    <Camera color={colors.violet} size={16} strokeWidth={2.4} />
-                    <Text style={styles.photoButtonText}>Cámara</Text>
-                  </Pressable>
-                  <Pressable onPress={() => pickImage("library")} style={styles.photoButton}>
-                    <ImagePlus color={colors.rose} size={16} strokeWidth={2.4} />
-                    <Text style={styles.photoButtonText}>Galería</Text>
-                  </Pressable>
-                </View>
-              </View>
+              <Pressable onPress={() => pickImage("library")} style={({ pressed }) => [styles.photoDrop, pressed && styles.pressed]}>
+                {imageAsset ? (
+                  <Image source={{ uri: imageAsset.uri }} style={styles.photoPreviewImage} />
+                ) : (
+                  <>
+                    <Camera color="rgba(155,93,229,0.5)" size={22} strokeWidth={2.2} />
+                    <Text style={styles.photoDropText}>Agregar foto</Text>
+                  </>
+                )}
+              </Pressable>
+              <Pressable onPress={() => pickImage("camera")} style={({ pressed }) => [styles.cameraLink, pressed && styles.pressed]}>
+                <Camera color={colors.violet} size={14} strokeWidth={2.4} />
+                <Text style={styles.cameraLinkText}>Usar cámara</Text>
+              </Pressable>
 
-              <FormField label="Nombre">
+              <FormField Icon={Tag} label="Nombre">
                 <TextInput
                   onChangeText={(value) => setForm((current) => ({ ...current, name: value }))}
                   placeholder="Remera básica oversize"
@@ -340,18 +330,56 @@ export function ProductsScreen() {
                 />
               </FormField>
 
-              <View style={styles.formRow}>
-                <FormField label="Talle" style={styles.formHalf}>
+              <FormField Icon={Ruler} label="Talle">
                   <TextInput
                     autoCapitalize="characters"
                     onChangeText={(value) => setForm((current) => ({ ...current, size: value }))}
-                    placeholder="M"
+                    placeholder="M, 38, S/M"
                     placeholderTextColor="rgba(90,60,120,0.36)"
                     style={styles.formInput}
                     value={form.size}
                   />
-                </FormField>
-                <FormField label="Subtipo" style={styles.formHalf}>
+              </FormField>
+
+              <FormField Icon={FileText} label="Descripción">
+                <TextInput
+                  multiline
+                  onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
+                  placeholder="Breve descripción..."
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={[styles.formInput, styles.textArea]}
+                  value={form.description}
+                />
+              </FormField>
+
+              <View style={styles.formRow}>
+                <View style={styles.formHalf}>
+                  <Text style={styles.formLabel}>Categoría</Text>
+                  <View style={styles.categoryStack}>
+                    {categories
+                      .filter((item): item is { label: string; value: ProductCategory } => item.value !== "all")
+                      .map((item) => {
+                        const active = form.category === item.value;
+
+                        return (
+                          <Pressable
+                            key={item.value}
+                            onPress={() => setForm((current) => ({ ...current, category: item.value }))}
+                            style={({ pressed }) => [
+                              styles.categoryOption,
+                              active && styles.categoryOptionActive,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Text style={[styles.categoryOptionText, active && styles.categoryOptionTextActive]}>
+                              {item.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                  </View>
+                </View>
+                <FormField label="Subclasificación" style={styles.formHalf}>
                   <TextInput
                     onChangeText={(value) => setForm((current) => ({ ...current, subcategory: value }))}
                     placeholder="Remera"
@@ -362,66 +390,34 @@ export function ProductsScreen() {
                 </FormField>
               </View>
 
-              <View>
-                <Text style={styles.formLabel}>Categoría</Text>
-                <View style={styles.categoryPicker}>
-                  {categories
-                    .filter((item): item is { label: string; value: ProductCategory } => item.value !== "all")
-                    .map((item) => {
-                      const active = form.category === item.value;
-
-                      return (
-                        <Pressable
-                          key={item.value}
-                          onPress={() => setForm((current) => ({ ...current, category: item.value }))}
-                          style={({ pressed }) => [
-                            styles.categoryOption,
-                            active && styles.categoryOptionActive,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text style={[styles.categoryOptionText, active && styles.categoryOptionTextActive]}>
-                            {item.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                </View>
-              </View>
-
               <View style={styles.formRow}>
-                <FormField label="Costo" style={styles.formHalf}>
-                  <TextInput
-                    inputMode="numeric"
-                    onChangeText={(value) => setForm((current) => ({ ...current, purchasePrice: value.replace(/\D/g, "") }))}
-                    placeholder="7000"
-                    placeholderTextColor="rgba(90,60,120,0.36)"
-                    style={styles.formInput}
-                    value={form.purchasePrice}
-                  />
+                <FormField label="Precio compra" style={styles.formHalf}>
+                  <View style={styles.moneyInputWrap}>
+                    <Text style={styles.currencyPrefix}>$</Text>
+                    <TextInput
+                      inputMode="numeric"
+                      onChangeText={(value) => setForm((current) => ({ ...current, purchasePrice: value.replace(/\D/g, "") }))}
+                      placeholder="0"
+                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      style={styles.moneyInput}
+                      value={form.purchasePrice}
+                    />
+                  </View>
                 </FormField>
-                <FormField label="Venta" style={styles.formHalf}>
-                  <TextInput
-                    inputMode="numeric"
-                    onChangeText={(value) => setForm((current) => ({ ...current, salePrice: value.replace(/\D/g, "") }))}
-                    placeholder="12000"
-                    placeholderTextColor="rgba(90,60,120,0.36)"
-                    style={styles.formInput}
-                    value={form.salePrice}
-                  />
+                <FormField label="Precio venta" style={styles.formHalf}>
+                  <View style={styles.moneyInputWrap}>
+                    <Text style={styles.currencyPrefix}>$</Text>
+                    <TextInput
+                      inputMode="numeric"
+                      onChangeText={(value) => setForm((current) => ({ ...current, salePrice: value.replace(/\D/g, "") }))}
+                      placeholder="0"
+                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      style={styles.moneyInput}
+                      value={form.salePrice}
+                    />
+                  </View>
                 </FormField>
               </View>
-
-              <FormField label="Descripción">
-                <TextInput
-                  multiline
-                  onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
-                  placeholder="Detalle opcional"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
-                  style={[styles.formInput, styles.textArea]}
-                  value={form.description}
-                />
-              </FormField>
 
               {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
@@ -445,17 +441,26 @@ export function ProductsScreen() {
 
 function FormField({
   children,
+  Icon,
   label,
   style,
 }: {
   children: ReactNode;
+  Icon?: LucideIcon;
   label: string;
   style?: object;
 }) {
   return (
     <View style={[styles.formField, style]}>
       <Text style={styles.formLabel}>{label}</Text>
-      {children}
+      {Icon ? (
+        <View style={styles.inputWrap}>
+          <Icon color="rgba(155,93,229,0.5)" size={14} strokeWidth={2.4} />
+          {children}
+        </View>
+      ) : (
+        children
+      )}
     </View>
   );
 }
@@ -553,9 +558,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 2,
   },
   title: {
     color: colors.foreground,
@@ -605,6 +608,10 @@ const styles = StyleSheet.create({
   filterChipActive: {
     backgroundColor: colors.violet,
     borderColor: "rgba(255,255,255,0.42)",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
   },
   filterText: {
     color: colors.muted,
@@ -644,7 +651,7 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   imageWrap: {
-    height: 126,
+    height: 120,
     overflow: "hidden",
   },
   image: {
@@ -833,64 +840,65 @@ const styles = StyleSheet.create({
     gap: 15,
     paddingBottom: 28,
   },
-  photoRow: {
-    flexDirection: "row",
-    gap: 14,
-  },
-  photoPreview: {
+  photoDrop: {
     alignItems: "center",
-    backgroundColor: "rgba(155,93,229,0.08)",
-    borderColor: "rgba(255,255,255,0.75)",
-    borderRadius: 24,
-    borderWidth: 1,
+    backgroundColor: "rgba(155,93,229,0.06)",
+    borderColor: "rgba(155,93,229,0.25)",
+    borderRadius: 20,
+    borderStyle: "dashed",
+    borderWidth: 2,
+    gap: 8,
     height: 112,
     justifyContent: "center",
     overflow: "hidden",
-    width: 112,
   },
   photoPreviewImage: {
     height: "100%",
     width: "100%",
   },
-  photoActions: {
-    flex: 1,
-    gap: 10,
-    justifyContent: "center",
+  photoDropText: {
+    color: "rgba(90,60,120,0.5)",
+    fontSize: 12,
+    fontWeight: "800",
   },
-  photoButton: {
+  cameraLink: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.75)",
-    borderRadius: 18,
-    borderWidth: 1,
+    alignSelf: "center",
     flexDirection: "row",
-    gap: 8,
-    minHeight: 45,
-    paddingHorizontal: 13,
+    gap: 6,
+    paddingVertical: 2,
   },
-  photoButtonText: {
-    color: colors.foreground,
-    fontSize: 13,
+  cameraLinkText: {
+    color: colors.violet,
+    fontSize: 12,
     fontWeight: "900",
   },
   formField: {
     gap: 7,
   },
   formLabel: {
-    color: colors.foreground,
-    fontSize: 12,
+    color: colors.muted,
+    fontSize: 11,
     fontWeight: "900",
+    textTransform: "uppercase",
   },
-  formInput: {
+  inputWrap: {
+    alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.5)",
     borderColor: "rgba(255,255,255,0.78)",
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
-    color: colors.foreground,
-    fontSize: 15,
-    fontWeight: "700",
+    flexDirection: "row",
+    gap: 10,
     minHeight: 48,
     paddingHorizontal: 13,
+  },
+  formInput: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    minHeight: 46,
   },
   textArea: {
     minHeight: 82,
@@ -904,8 +912,7 @@ const styles = StyleSheet.create({
   formHalf: {
     flex: 1,
   },
-  categoryPicker: {
-    flexDirection: "row",
+  categoryStack: {
     gap: 8,
   },
   categoryOption: {
@@ -913,7 +920,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.75)",
     borderRadius: 999,
     borderWidth: 1,
-    flex: 1,
     paddingHorizontal: 10,
     paddingVertical: 10,
   },
@@ -928,6 +934,29 @@ const styles = StyleSheet.create({
   },
   categoryOptionTextActive: {
     color: colors.white,
+  },
+  moneyInputWrap: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderColor: "rgba(255,255,255,0.78)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  currencyPrefix: {
+    color: "rgba(155,93,229,0.6)",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  moneyInput: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "800",
+    minHeight: 46,
   },
   formError: {
     color: colors.red,
