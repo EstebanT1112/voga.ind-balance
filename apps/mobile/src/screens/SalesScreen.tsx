@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import {
   CheckCircle2,
+  Calendar,
   ChevronRight,
   CreditCard,
   DollarSign,
@@ -42,6 +43,8 @@ import type { CreateSaleInput, PaymentStatus, Sale, SaleItem, SalesResponse } fr
 import { colors, formatMoney } from "../theme/liquid";
 
 type SalesTab = "new" | "history";
+type ProductSelectionView = "list" | "catalog";
+type HistorySearchTarget = "buyer" | "seller" | null;
 
 const categories: Array<{ label: string; value: ProductCategory | "all" }> = [
   { label: "Todas", value: "all" },
@@ -49,6 +52,12 @@ const categories: Array<{ label: string; value: ProductCategory | "all" }> = [
   { label: "Inferior", value: "lower" },
   { label: "Lenceria", value: "lingerie" },
 ];
+
+const categoryLabels: Record<ProductCategory, string> = {
+  lingerie: "Lenceria",
+  lower: "Inferior",
+  upper: "Superior",
+};
 
 const paymentLabels: Record<PaymentStatus, string> = {
   overdue: "Vencida",
@@ -88,6 +97,44 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+function formatDateForSearch(value: string): string {
+  const date = new Date(value);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+
+  return [`${day}/${month}/${year}`, `${year}-${month}-${day}`, `${day}/${month}`, formatDate(value).toLowerCase()].join(" ");
+}
+
+function formatCalendarDate(value: Date): string {
+  const day = String(value.getDate()).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const year = String(value.getFullYear());
+
+  return `${day}/${month}/${year}`;
+}
+
+function getCalendarDays(monthDate: Date): Date[] {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - startOffset);
+
+  return Array.from({ length: 42 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function isAfterDay(a: Date, b: Date): boolean {
+  const left = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
+  const right = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
+
+  return left > right;
+}
+
 function formatFullDate(value: string): string {
   return new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
@@ -123,9 +170,12 @@ export function SalesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [productSelectionView, setProductSelectionView] = useState<ProductSelectionView>("list");
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesTab, setSalesTab] = useState<SalesTab>("new");
   const [saving, setSaving] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySearchTarget, setHistorySearchTarget] = useState<HistorySearchTarget>(null);
   const [search, setSearch] = useState("");
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
@@ -180,7 +230,7 @@ export function SalesScreen() {
       return;
     }
 
-    const response = await apiRequest<UsersResponse>("/users?active=true", {
+    const response = await apiRequest<UsersResponse>("/users", {
       method: "GET",
       session,
     });
@@ -220,6 +270,28 @@ export function SalesScreen() {
       return matchesCategory && matchesSearch;
     });
   }, [availableProducts, category, search]);
+
+  const filteredSales = useMemo(() => {
+    const normalizedSearch = historySearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return sales;
+    }
+
+    return sales.filter((sale) => {
+      const seller = sellers.find((item) => item.id === sale.sellerId);
+      const searchValues =
+        historySearchTarget === "buyer"
+          ? [sale.buyerFullName]
+          : historySearchTarget === "seller"
+            ? [seller?.fullName ?? ""]
+            : [sale.buyerFullName, seller?.fullName ?? ""];
+      const matchesSearch = !normalizedSearch || searchValues.some((value) => value.toLowerCase().includes(normalizedSearch));
+      const matchesDate = formatDateForSearch(sale.saleDate).includes(normalizedSearch);
+
+      return matchesSearch || matchesDate;
+    });
+  }, [historySearch, historySearchTarget, sales, sellers]);
 
   const resetForm = () => {
     setForm(initialForm);
@@ -353,19 +425,27 @@ export function SalesScreen() {
             filteredProducts={filteredProducts}
             formError={formError}
             productsLoading={productsLoading}
+            productSelectionView={productSelectionView}
             search={search}
             selectedProductIds={selectedProductIds}
             setCategory={setCategory}
+            setProductSelectionView={setProductSelectionView}
             setSearch={setSearch}
             toggleProduct={toggleProduct}
           />
         ) : (
           <HistoryContent
             errorMessage={errorMessage}
+            filteredCount={filteredSales.length}
+            historySearch={historySearch}
+            historySearchTarget={historySearchTarget}
             loading={loading}
             onSalePress={setSelectedSale}
-            sales={sales}
+            sales={filteredSales}
+            setHistorySearch={setHistorySearch}
+            setHistorySearchTarget={setHistorySearchTarget}
             sellers={sellers}
+            totalCount={sales.length}
           />
         )}
       </ScrollView>
@@ -510,9 +590,11 @@ function NewSaleContent({
   filteredProducts,
   formError,
   productsLoading,
+  productSelectionView,
   search,
   selectedProductIds,
   setCategory,
+  setProductSelectionView,
   setSearch,
   toggleProduct,
 }: {
@@ -520,9 +602,11 @@ function NewSaleContent({
   filteredProducts: Product[];
   formError: string | null;
   productsLoading: boolean;
+  productSelectionView: ProductSelectionView;
   search: string;
   selectedProductIds: string[];
   setCategory: (category: ProductCategory | "all") => void;
+  setProductSelectionView: (view: ProductSelectionView) => void;
   setSearch: (search: string) => void;
   toggleProduct: (productId: string) => void;
 }) {
@@ -556,16 +640,48 @@ function NewSaleContent({
         })}
       </ScrollView>
 
-      <View style={styles.productList}>
-        {filteredProducts.map((product) => (
-          <ProductOption
-            key={product.id}
-            product={product}
-            selected={selectedProductIds.includes(product.id)}
-            onPress={() => toggleProduct(product.id)}
-          />
-        ))}
+      <View style={styles.viewToggle}>
+        {[
+          { label: "Lista", value: "list" as const },
+          { label: "Catalogo", value: "catalog" as const },
+        ].map((item) => {
+          const active = item.value === productSelectionView;
+
+          return (
+            <Pressable
+              key={item.value}
+              onPress={() => setProductSelectionView(item.value)}
+              style={({ pressed }) => [styles.viewToggleButton, active && styles.viewToggleButtonActive, pressed && styles.pressed]}
+            >
+              <Text style={[styles.viewToggleText, active && styles.viewToggleTextActive]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
+
+      {productSelectionView === "list" ? (
+        <View style={styles.productList}>
+          {filteredProducts.map((product) => (
+            <ProductOption
+              key={product.id}
+              product={product}
+              selected={selectedProductIds.includes(product.id)}
+              onPress={() => toggleProduct(product.id)}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={styles.catalogProductGrid}>
+          {filteredProducts.map((product) => (
+            <CatalogProductOption
+              key={product.id}
+              product={product}
+              selected={selectedProductIds.includes(product.id)}
+              onPress={() => toggleProduct(product.id)}
+            />
+          ))}
+        </View>
+      )}
 
       {productsLoading ? <ActivityIndicator color={colors.violet} /> : null}
       {!productsLoading && filteredProducts.length === 0 ? (
@@ -581,19 +697,171 @@ function NewSaleContent({
 
 function HistoryContent({
   errorMessage,
+  filteredCount,
+  historySearch,
+  historySearchTarget,
   loading,
   onSalePress,
   sales,
+  setHistorySearch,
+  setHistorySearchTarget,
   sellers,
+  totalCount,
 }: {
   errorMessage: string | null;
+  filteredCount: number;
+  historySearch: string;
+  historySearchTarget: HistorySearchTarget;
   loading: boolean;
   onSalePress: (sale: Sale) => void;
   sales: Sale[];
+  setHistorySearch: (search: string) => void;
+  setHistorySearchTarget: (target: HistorySearchTarget) => void;
   sellers: ApiProfile[];
+  totalCount: number;
 }) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date());
+  const calendarDays = useMemo(() => getCalendarDays(visibleMonth), [visibleMonth]);
+  const today = useMemo(() => new Date(), []);
+  const monthLabel = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" }).format(visibleMonth);
+  const canGoNextMonth =
+    visibleMonth.getFullYear() < today.getFullYear() ||
+    (visibleMonth.getFullYear() === today.getFullYear() && visibleMonth.getMonth() < today.getMonth());
+
+  const changeMonth = (offset: number) => {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  };
+
+  const selectCalendarDate = (date: Date) => {
+    setHistorySearch(formatCalendarDate(date));
+    setCalendarOpen(false);
+  };
+
   return (
     <>
+      <View style={styles.searchBox}>
+        <Search color="rgba(155,93,229,0.52)" size={17} strokeWidth={2.2} />
+        <TextInput
+          autoCapitalize="none"
+          onChangeText={setHistorySearch}
+          placeholder={
+            historySearchTarget === "buyer"
+              ? "Buscar compradora o fecha..."
+              : historySearchTarget === "seller"
+                ? "Buscar vendedora o fecha..."
+                : "Buscar nombre o fecha..."
+          }
+          placeholderTextColor="rgba(90,60,120,0.36)"
+          style={styles.searchInput}
+          value={historySearch}
+        />
+        <Pressable onPress={() => setCalendarOpen(true)} style={({ pressed }) => [styles.calendarTrigger, pressed && styles.pressed]}>
+          <Calendar color={colors.violet} size={17} strokeWidth={2.4} />
+        </Pressable>
+      </View>
+
+      <View style={styles.historyChecks}>
+        {[
+          { label: "Compradora", value: "buyer" as const },
+          { label: "Vendedora", value: "seller" as const },
+        ].map((item) => {
+          const active = historySearchTarget === item.value;
+
+          return (
+            <Pressable
+              key={item.value}
+              onPress={() => setHistorySearchTarget(active ? null : item.value)}
+              style={({ pressed }) => [styles.historyCheck, active && styles.historyCheckActive, pressed && styles.pressed]}
+            >
+              <View style={[styles.historyCheckIcon, active && styles.historyCheckIconActive]}>
+                {active ? <CheckCircle2 color={colors.white} size={14} strokeWidth={2.6} /> : null}
+              </View>
+              <Text style={[styles.historyCheckText, active && styles.historyCheckTextActive]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Modal animationType="slide" transparent visible={calendarOpen} onRequestClose={() => setCalendarOpen(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setCalendarOpen(false)} />
+          <View style={styles.calendarSheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.calendarHeader}>
+              <Pressable onPress={() => changeMonth(-1)} style={({ pressed }) => [styles.calendarNavButton, pressed && styles.pressed]}>
+                <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.calendarPrevIcon} />
+              </Pressable>
+              <Text style={styles.calendarTitle}>{monthLabel}</Text>
+              <Pressable
+                disabled={!canGoNextMonth}
+                onPress={() => changeMonth(1)}
+                style={({ pressed }) => [styles.calendarNavButton, !canGoNextMonth && styles.calendarNavButtonDisabled, pressed && styles.pressed]}
+              >
+                <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} />
+              </Pressable>
+            </View>
+
+            <View style={styles.calendarWeekRow}>
+              {["L", "M", "M", "J", "V", "S", "D"].map((day, index) => (
+                <Text key={`${day}-${index}`} style={styles.calendarWeekText}>
+                  {day}
+                </Text>
+              ))}
+            </View>
+
+            <View style={styles.calendarGrid}>
+              {calendarDays.map((date) => {
+                const inMonth = date.getMonth() === visibleMonth.getMonth();
+                const selected = historySearch === formatCalendarDate(date);
+                const currentDay = isSameDay(date, today);
+                const futureDay = isAfterDay(date, today);
+
+                return (
+                  <Pressable
+                    key={date.toISOString()}
+                    disabled={futureDay}
+                    onPress={() => selectCalendarDate(date)}
+                    style={({ pressed }) => [
+                      styles.calendarDay,
+                      !inMonth && styles.calendarDayOutside,
+                      futureDay && styles.calendarDayDisabled,
+                      currentDay && styles.calendarDayToday,
+                      selected && styles.calendarDaySelected,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.calendarDayText,
+                        !inMonth && styles.calendarDayTextOutside,
+                        futureDay && styles.calendarDayTextDisabled,
+                        currentDay && styles.calendarDayTextToday,
+                        selected && styles.calendarDayTextSelected,
+                      ]}
+                    >
+                      {date.getDate()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.calendarFooter}>
+              <Pressable
+                onPress={() => {
+                  setHistorySearch("");
+                  setCalendarOpen(false);
+                }}
+                style={({ pressed }) => [styles.calendarClearButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.calendarClearText}>Limpiar fecha</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {errorMessage ? (
         <LiquidCard style={styles.errorCard}>
           <Text style={styles.errorTitle}>No se pudieron cargar las ventas</Text>
@@ -610,9 +878,10 @@ function HistoryContent({
             return <SaleCard key={sale.id} sale={sale} seller={seller} onPress={() => onSalePress(sale)} />;
           })}
         </View>
-        {!loading && sales.length === 0 ? (
+        {!loading && filteredCount === 0 ? (
           <LiquidCard style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Sin ventas registradas</Text>
+            <Text style={styles.emptyTitle}>{totalCount === 0 ? "Sin ventas registradas" : "Sin resultados"}</Text>
+            {totalCount > 0 ? <Text style={styles.emptyText}>Proba cambiar el nombre, el criterio o la fecha de venta.</Text> : null}
           </LiquidCard>
         ) : null}
       </View>
@@ -697,6 +966,77 @@ function ProductOption({ onPress, product, selected }: { onPress: () => void; pr
         </View>
       </View>
     </LiquidCard>
+  );
+}
+
+function CatalogProductOption({ onPress, product, selected }: { onPress: () => void; product: Product; selected: boolean }) {
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!product.photoPath) {
+      setPhotoUrl(null);
+      return;
+    }
+
+    getProductPhotoUrl(product.photoPath)
+      .then((url) => {
+        if (mounted) {
+          setPhotoUrl(url);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setPhotoUrl(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [product.photoPath]);
+
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.catalogProductPressable, pressed && styles.pressed]}>
+      <LiquidCard style={[styles.catalogProductCard, selected && styles.catalogProductCardSelected]}>
+        <View style={styles.catalogImageWrap}>
+          {photoUrl ? (
+            <Image source={{ uri: photoUrl }} style={styles.productImage} />
+          ) : (
+            <View style={styles.catalogImagePlaceholder}>
+              <Shirt color="rgba(155,93,229,0.44)" size={30} strokeWidth={1.8} />
+            </View>
+          )}
+          <View style={[styles.catalogSelectBubble, selected && styles.catalogSelectBubbleActive]}>
+            {selected ? (
+              <CheckCircle2 color={colors.white} size={16} strokeWidth={2.5} />
+            ) : (
+              <Plus color={colors.violet} size={15} strokeWidth={2.5} />
+            )}
+          </View>
+        </View>
+
+        <View style={styles.catalogProductBody}>
+          <Text numberOfLines={2} style={styles.catalogProductName}>
+            {product.name}
+          </Text>
+          <View style={styles.catalogBadges}>
+            <GlassBadge label={categoryLabels[product.category]} tone={colors.violet} />
+            <GlassBadge label={`T: ${product.size}`} tone={colors.rose} />
+          </View>
+          {product.subcategory ? (
+            <Text numberOfLines={1} style={styles.catalogSubcategory}>
+              {product.subcategory}
+            </Text>
+          ) : null}
+          <View style={styles.catalogPriceRow}>
+            <Text style={styles.catalogPriceLabel}>Venta</Text>
+            <Text style={styles.catalogPriceValue}>{formatMoney(product.salePrice)}</Text>
+          </View>
+        </View>
+      </LiquidCard>
+    </Pressable>
   );
 }
 
@@ -1457,6 +1797,169 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minHeight: 46,
   },
+  calendarTrigger: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.1)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  calendarSheet: {
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderColor: "rgba(255,255,255,0.88)",
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    borderWidth: 1,
+    paddingBottom: 24,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.18,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -12 },
+    elevation: 20,
+  },
+  calendarHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  calendarNavButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.1)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 15,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  calendarNavButtonDisabled: {
+    opacity: 0.32,
+  },
+  calendarPrevIcon: {
+    transform: [{ rotate: "180deg" }],
+  },
+  calendarTitle: {
+    color: colors.foreground,
+    fontSize: 17,
+    fontWeight: "900",
+    textTransform: "capitalize",
+  },
+  calendarWeekRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+  },
+  calendarWeekText: {
+    color: "rgba(90,60,120,0.58)",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: 8,
+  },
+  calendarDay: {
+    alignItems: "center",
+    borderRadius: 14,
+    height: 40,
+    justifyContent: "center",
+    width: "14.2857%",
+  },
+  calendarDayOutside: {
+    opacity: 0.48,
+  },
+  calendarDayDisabled: {
+    opacity: 0.22,
+  },
+  calendarDayToday: {
+    backgroundColor: "rgba(155,93,229,0.1)",
+  },
+  calendarDaySelected: {
+    backgroundColor: colors.violet,
+  },
+  calendarDayText: {
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  calendarDayTextOutside: {
+    color: "rgba(90,60,120,0.54)",
+  },
+  calendarDayTextDisabled: {
+    color: "rgba(90,60,120,0.26)",
+  },
+  calendarDayTextToday: {
+    color: colors.violet,
+  },
+  calendarDayTextSelected: {
+    color: colors.white,
+  },
+  calendarFooter: {
+    alignItems: "center",
+    marginTop: 18,
+  },
+  calendarClearButton: {
+    backgroundColor: "rgba(155,93,229,0.1)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  calendarClearText: {
+    color: colors.violet,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  historyChecks: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  historyCheck: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.4)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  historyCheckActive: {
+    backgroundColor: "rgba(155,93,229,0.14)",
+    borderColor: "rgba(155,93,229,0.28)",
+  },
+  historyCheckIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.64)",
+    borderColor: "rgba(155,93,229,0.2)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 22,
+    justifyContent: "center",
+    width: 22,
+  },
+  historyCheckIconActive: {
+    backgroundColor: colors.violet,
+    borderColor: "rgba(255,255,255,0.75)",
+  },
+  historyCheckText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  historyCheckTextActive: {
+    color: colors.violet,
+  },
   filters: {
     gap: 8,
     paddingRight: 20,
@@ -1480,8 +1983,122 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: colors.white,
   },
+  viewToggle: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.38)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    padding: 4,
+  },
+  viewToggleButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 13,
+  },
+  viewToggleButtonActive: {
+    backgroundColor: colors.violet,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.26,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  viewToggleText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  viewToggleTextActive: {
+    color: colors.white,
+  },
   productList: {
     gap: 12,
+  },
+  catalogProductGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  catalogProductPressable: {
+    width: "47.9%",
+  },
+  catalogProductCard: {
+    overflow: "hidden",
+    width: "100%",
+  },
+  catalogProductCardSelected: {
+    borderColor: "rgba(155,93,229,0.42)",
+  },
+  catalogImageWrap: {
+    height: 120,
+    overflow: "hidden",
+  },
+  catalogImagePlaceholder: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    height: "100%",
+    justifyContent: "center",
+    width: "100%",
+  },
+  catalogSelectBubble: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(155,93,229,0.2)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    position: "absolute",
+    right: 9,
+    top: 9,
+    width: 30,
+  },
+  catalogSelectBubbleActive: {
+    backgroundColor: colors.violet,
+    borderColor: "rgba(255,255,255,0.82)",
+  },
+  catalogProductBody: {
+    padding: 12,
+  },
+  catalogProductName: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 17,
+    minHeight: 34,
+  },
+  catalogBadges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 8,
+  },
+  catalogSubcategory: {
+    color: colors.faint,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  catalogPriceRow: {
+    alignItems: "flex-end",
+    marginTop: 12,
+  },
+  catalogPriceLabel: {
+    color: colors.faint,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  catalogPriceValue: {
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 2,
   },
   productCard: {
     padding: 14,

@@ -24,3 +24,17 @@ export interface UserListFilters {
   role?: ApiRole;
   active?: boolean;
 }
+
+export interface CreateUserData {
+  email: string;
+  password: string;
+  fullName: string;
+  color?: string | null;
+  active?: boolean;
+}
+
+export interface UpdateUserData {
+  fullName?: string;
+  color?: string | null;
+  active?: boolean;
+}
