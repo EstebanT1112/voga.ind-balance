@@ -32,3 +32,5 @@ export interface CreateProductInput {
   purchasePrice: number;
   salePrice: number;
 }
+
+export type UpdateProductInput = Partial<CreateProductInput>;
