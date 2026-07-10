@@ -16,13 +16,20 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Camera, FileText, ImagePlus, Plus, Ruler, Save, Search, Shirt, Tag, X } from "lucide-react-native";
+import { Camera, Edit3, FileText, ImagePlus, Plus, Ruler, Save, Search, Shirt, Tag, X } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
 import { GlassBadge, LiquidCard } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import { getProductPhotoUrl, uploadProductPhoto } from "../products/productPhotos";
-import type { CreateProductInput, Product, ProductCategory, ProductStatus, ProductsResponse } from "../products/product.types";
+import type {
+  CreateProductInput,
+  Product,
+  ProductCategory,
+  ProductStatus,
+  ProductsResponse,
+  UpdateProductInput,
+} from "../products/product.types";
 import { colors, formatMoney } from "../theme/liquid";
 
 const categories: Array<{ label: string; value: ProductCategory | "all" }> = [
@@ -36,6 +43,12 @@ const statusLabels: Record<ProductStatus, string> = {
   available: "Disponible",
   sold: "Vendido",
 };
+
+const statusFilters: Array<{ label: string; value: ProductStatus | "all" }> = [
+  { label: "Todos", value: "all" },
+  { label: "Disponibles", value: "available" },
+  { label: "Vendidos", value: "sold" },
+];
 
 const categoryLabels: Record<ProductCategory, string> = {
   lingerie: "Lenceria",
@@ -65,6 +78,9 @@ export function ProductsScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ProductStatus | "all">("all");
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const loadProducts = useCallback(async () => {
     if (!session) {
@@ -111,10 +127,45 @@ export function ProductsScreen() {
     [products],
   );
 
+  const visibleProducts = useMemo(() => {
+    return products
+      .filter((product) => statusFilter === "all" || product.status === statusFilter)
+      .sort((a, b) => {
+        if (a.status !== b.status) {
+          return a.status === "available" ? -1 : 1;
+        }
+
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [products, statusFilter]);
+
   const resetForm = () => {
     setForm(initialForm);
     setFormError(null);
     setImageAsset(null);
+    setEditingProduct(null);
+  };
+
+  const openCreateForm = () => {
+    resetForm();
+    setFormOpen(true);
+  };
+
+  const openEditForm = (product: Product) => {
+    setSelectedProduct(null);
+    setEditingProduct(product);
+    setImageAsset(null);
+    setForm({
+      category: product.category,
+      description: product.description ?? "",
+      name: product.name,
+      purchasePrice: String(product.purchasePrice ?? 0),
+      salePrice: String(product.salePrice),
+      size: product.size,
+      subcategory: product.subcategory ?? "",
+    });
+    setFormError(null);
+    setFormOpen(true);
   };
 
   const closeForm = () => {
@@ -158,7 +209,7 @@ export function ProductsScreen() {
     }
   };
 
-  const createProduct = async () => {
+  const saveProduct = async () => {
     if (!session || !profile) {
       return;
     }
@@ -180,7 +231,7 @@ export function ProductsScreen() {
     setFormError(null);
 
     try {
-      let photoPath: string | null = null;
+      let photoPath: string | null = editingProduct?.photoPath ?? null;
 
       if (imageAsset) {
         try {
@@ -192,7 +243,7 @@ export function ProductsScreen() {
         }
       }
 
-      const payload: CreateProductInput = {
+      const payload: CreateProductInput | UpdateProductInput = {
         category: form.category,
         description: form.description.trim() || null,
         name: form.name.trim(),
@@ -203,17 +254,18 @@ export function ProductsScreen() {
         subcategory: form.subcategory.trim() || null,
       };
 
-      await apiRequest<{ item: Product }>("/products", {
+      const response = await apiRequest<{ item: Product }>(editingProduct ? `/products/${editingProduct.id}` : "/products", {
         body: payload,
-        method: "POST",
+        method: editingProduct ? "PATCH" : "POST",
         session,
       });
 
       setFormOpen(false);
+      setSelectedProduct(response.item);
       resetForm();
       await loadProducts();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "No se pudo crear el producto");
+      setFormError(error instanceof Error ? error.message : "No se pudo guardar el producto");
     } finally {
       setSaving(false);
     }
@@ -262,6 +314,22 @@ export function ProductsScreen() {
           })}
         </ScrollView>
 
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          {statusFilters.map((item) => {
+            const active = item.value === statusFilter;
+
+            return (
+              <Pressable
+                key={item.value}
+                onPress={() => setStatusFilter(item.value)}
+                style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.pressed]}
+              >
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
         {errorMessage ? (
           <LiquidCard style={styles.errorCard}>
             <Text style={styles.errorTitle}>No se pudo cargar el catalogo</Text>
@@ -270,10 +338,10 @@ export function ProductsScreen() {
         ) : null}
 
         <View style={styles.grid}>
-          {products.map((product) => (
-            <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} />
+          {visibleProducts.map((product) => (
+            <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} onPress={() => setSelectedProduct(product)} />
           ))}
-          {!loading && products.length === 0 ? (
+          {!loading && visibleProducts.length === 0 ? (
             <LiquidCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Sin productos</Text>
               <Text style={styles.emptyText}>Cuando cargues productos van a aparecer en esta seccion.</Text>
@@ -283,7 +351,7 @@ export function ProductsScreen() {
       </ScrollView>
 
       {profile?.role === "owner" ? (
-        <Pressable onPress={() => setFormOpen(true)} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
+        <Pressable onPress={openCreateForm} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
           <Plus color={colors.white} size={19} strokeWidth={2.5} />
           <Text style={styles.fabText}>Agregar</Text>
         </Pressable>
@@ -296,8 +364,8 @@ export function ProductsScreen() {
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <View>
-                <Text style={styles.sheetTitle}>Nuevo producto</Text>
-                <Text style={styles.sheetSubtitle}>Cargá foto, precio y clasificación</Text>
+                <Text style={styles.sheetTitle}>{editingProduct ? "Editar producto" : "Nuevo producto"}</Text>
+                <Text style={styles.sheetSubtitle}>{editingProduct ? "Actualiza los datos del producto" : "Carga foto, precio y clasificacion"}</Text>
               </View>
               <Pressable onPress={closeForm} style={styles.closeButton}>
                 <X color={colors.violet} size={18} strokeWidth={2.4} />
@@ -421,18 +489,32 @@ export function ProductsScreen() {
 
               {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
-              <Pressable disabled={saving} onPress={createProduct} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
+              <Pressable disabled={saving} onPress={saveProduct} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
                 {saving ? (
                   <ActivityIndicator color={colors.white} />
                 ) : (
                   <>
                     <Save color={colors.white} size={17} strokeWidth={2.4} />
-                    <Text style={styles.saveButtonText}>Guardar producto</Text>
+                    <Text style={styles.saveButtonText}>{editingProduct ? "Guardar cambios" : "Guardar producto"}</Text>
                   </>
                 )}
               </Pressable>
             </ScrollView>
           </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal animationType="slide" transparent visible={selectedProduct !== null} onRequestClose={() => setSelectedProduct(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setSelectedProduct(null)} />
+          {selectedProduct ? (
+            <ProductDetailSheet
+              product={selectedProduct}
+              showCost={profile?.role === "owner"}
+              onClose={() => setSelectedProduct(null)}
+              onEdit={selectedProduct.status === "available" && profile?.role === "owner" ? () => openEditForm(selectedProduct) : undefined}
+            />
+          ) : null}
         </KeyboardAvoidingView>
       </Modal>
     </View>
@@ -465,19 +547,18 @@ function FormField({
   );
 }
 
-function ProductCard({ product, showCost }: { product: Product; showCost: boolean }) {
-  const sold = product.status === "sold";
+function ProductPhoto({ photoPath, style }: { photoPath: string | null; style: object }) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
-    if (!product.photoPath) {
+    if (!photoPath) {
       setPhotoUrl(null);
       return;
     }
 
-    getProductPhotoUrl(product.photoPath)
+    getProductPhotoUrl(photoPath)
       .then((url) => {
         if (mounted) {
           setPhotoUrl(url);
@@ -492,18 +573,33 @@ function ProductCard({ product, showCost }: { product: Product; showCost: boolea
     return () => {
       mounted = false;
     };
-  }, [product.photoPath]);
+  }, [photoPath]);
+
+  return photoUrl ? (
+    <Image source={{ uri: photoUrl }} style={style} />
+  ) : (
+    <View style={[style, styles.imagePlaceholder]}>
+      <Shirt color="rgba(155,93,229,0.44)" size={30} strokeWidth={1.8} />
+    </View>
+  );
+}
+
+function ProductCard({
+  onPress,
+  product,
+  showCost,
+}: {
+  onPress: () => void;
+  product: Product;
+  showCost: boolean;
+}) {
+  const sold = product.status === "sold";
 
   return (
-    <LiquidCard style={[styles.productCard, sold && styles.soldCard]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.productPressable, pressed && styles.pressed]}>
+      <LiquidCard style={[styles.productCard, sold && styles.soldCard]}>
       <View style={styles.imageWrap}>
-        {photoUrl ? (
-          <Image source={{ uri: photoUrl }} style={styles.image} />
-        ) : (
-          <View style={styles.imagePlaceholder}>
-            <Shirt color="rgba(155,93,229,0.44)" size={30} strokeWidth={1.8} />
-          </View>
-        )}
+        <ProductPhoto photoPath={product.photoPath} style={styles.image} />
         {sold ? (
           <View style={styles.soldOverlay}>
             <GlassBadge label="Vendido" tone={colors.violet} />
@@ -543,7 +639,69 @@ function ProductCard({ product, showCost }: { product: Product; showCost: boolea
           </View>
         </View>
       </View>
-    </LiquidCard>
+      </LiquidCard>
+    </Pressable>
+  );
+}
+
+function ProductDetailSheet({
+  onClose,
+  onEdit,
+  product,
+  showCost,
+}: {
+  onClose: () => void;
+  onEdit?: () => void;
+  product: Product;
+  showCost: boolean;
+}) {
+  return (
+    <View style={styles.sheet}>
+      <View style={styles.sheetHandle} />
+      <View style={styles.sheetHeader}>
+        <View>
+          <Text style={styles.sheetTitle}>{product.name}</Text>
+          <Text style={styles.sheetSubtitle}>{statusLabels[product.status]}</Text>
+        </View>
+        <Pressable onPress={onClose} style={styles.closeButton}>
+          <X color={colors.violet} size={18} strokeWidth={2.4} />
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.detailContent}>
+        <View style={styles.detailImageWrap}>
+          <ProductPhoto photoPath={product.photoPath} style={styles.detailImage} />
+        </View>
+
+        <View style={styles.badges}>
+          <GlassBadge label={categoryLabels[product.category]} tone={colors.violet} />
+          <GlassBadge label={`T: ${product.size}`} tone={colors.rose} />
+          {product.subcategory ? <GlassBadge label={product.subcategory} tone={colors.coral} /> : null}
+        </View>
+
+        {product.description ? <Text style={styles.detailDescription}>{product.description}</Text> : null}
+
+        <View style={styles.detailPriceGrid}>
+          {showCost ? (
+            <View style={styles.detailPriceCard}>
+              <Text style={styles.priceLabel}>Compra</Text>
+              <Text style={styles.detailPriceValue}>{formatMoney(product.purchasePrice ?? 0)}</Text>
+            </View>
+          ) : null}
+          <View style={styles.detailPriceCard}>
+            <Text style={styles.priceLabel}>Venta</Text>
+            <Text style={styles.detailPriceValue}>{formatMoney(product.salePrice)}</Text>
+          </View>
+        </View>
+
+        {onEdit ? (
+          <Pressable onPress={onEdit} style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+            <Edit3 color={colors.white} size={16} strokeWidth={2.5} />
+            <Text style={styles.editButtonText}>Editar producto</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -645,6 +803,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   productCard: {
+    width: "100%",
+  },
+  productPressable: {
     width: "47.9%",
   },
   soldCard: {
@@ -978,6 +1139,58 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   saveButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  detailContent: {
+    gap: 16,
+    paddingBottom: 30,
+  },
+  detailImageWrap: {
+    borderRadius: 24,
+    height: 260,
+    overflow: "hidden",
+  },
+  detailImage: {
+    backgroundColor: "rgba(155,93,229,0.08)",
+    height: "100%",
+    width: "100%",
+  },
+  detailDescription: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  detailPriceGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  detailPriceCard: {
+    backgroundColor: "rgba(255,255,255,0.48)",
+    borderColor: "rgba(255,255,255,0.75)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    padding: 14,
+  },
+  detailPriceValue: {
+    color: colors.foreground,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  editButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 20,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 52,
+  },
+  editButtonText: {
     color: colors.white,
     fontSize: 15,
     fontWeight: "900",
