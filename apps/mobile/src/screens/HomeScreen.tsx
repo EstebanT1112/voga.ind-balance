@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, TrendingUp, Users } from "lucide-react-native";
+import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, ReceiptText, TrendingUp, Users } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
 import { IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
@@ -129,6 +129,7 @@ export function HomeScreen() {
         <View style={styles.heroGrid}>
           <MetricTile Icon={CheckCircle2} label="Cobrado" tone={colors.mint} value={formatMoney(totals?.netCollectedAmount ?? 0)} />
           <MetricTile Icon={AlertCircle} label="Por cobrar" tone={colors.red} value={formatMoney(totals?.pendingAmount ?? 0)} />
+          <MetricTile Icon={ReceiptText} label="Gastado" tone={colors.coral} value={formatMoney(totals?.expensesAmount ?? 0)} />
         </View>
       </LiquidCard>
 
@@ -321,6 +322,7 @@ const styles = StyleSheet.create({
   },
   heroGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
   metricTile: {
@@ -328,7 +330,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.6)",
     borderRadius: 18,
     borderWidth: 1,
-    flex: 1,
+    flexBasis: "30%",
+    flexGrow: 1,
     padding: 14,
   },
   metricTileHeader: {
