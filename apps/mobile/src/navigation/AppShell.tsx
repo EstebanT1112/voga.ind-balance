@@ -1,20 +1,22 @@
 import { useState } from "react";
-import { BarChart3, Home, Package, ShoppingBag } from "lucide-react-native";
+import { BarChart3, Home, Package, ReceiptText, ShoppingBag } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { HomeScreen } from "../screens/HomeScreen";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
+import { ExpensesScreen } from "../screens/ExpensesScreen";
 import { ProductsScreen } from "../screens/ProductsScreen";
 import { SalesScreen } from "../screens/SalesScreen";
 import { colors } from "../theme/liquid";
 
-type Tab = "home" | "products" | "sales" | "analytics";
+type Tab = "home" | "products" | "sales" | "expenses" | "analytics";
 
 const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
   { id: "home", label: "Home", Icon: Home },
   { id: "products", label: "Catálogo", Icon: Package },
   { id: "sales", label: "Ventas", Icon: ShoppingBag },
+  { id: "expenses", label: "Gastos", Icon: ReceiptText },
   { id: "analytics", label: "Analíticas", Icon: BarChart3 },
 ];
 
@@ -33,6 +35,8 @@ export function AppShell() {
           <ProductsScreen />
         ) : tab === "sales" ? (
           <SalesScreen />
+        ) : tab === "expenses" ? (
+          <ExpensesScreen />
         ) : tab === "analytics" ? (
           <AnalyticsScreen />
         ) : (

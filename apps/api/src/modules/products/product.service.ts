@@ -1,4 +1,5 @@
 import { HttpError } from "../../lib/http-error.js";
+import { expenseRepository } from "../expenses/expense.repository.js";
 import type { ApiProfile } from "../users/user.types.js";
 import { mapProductRow } from "./product.mapper.js";
 import { productRepository } from "./product.repository.js";
@@ -13,6 +14,10 @@ function assertOwner(profile: ApiProfile): void {
   if (profile.role !== "owner") {
     throw new HttpError(403, "forbidden", "Only owner can modify products");
   }
+}
+
+function buildProductExpenseDescription(product: { name: string; size: string }): string {
+  return `Producto: ${product.name} - talle ${product.size}`;
 }
 
 export const productService = {
@@ -35,6 +40,20 @@ export const productService = {
     assertOwner(profile);
 
     const product = await productRepository.create(data, profile.id);
+
+    if (product.purchase_price > 0) {
+      await expenseRepository.create(
+        {
+          amount: product.purchase_price,
+          category: "Productos",
+          description: buildProductExpenseDescription(product),
+          note: "Generado automaticamente al cargar producto",
+          spentAt: product.created_at,
+        },
+        profile.id,
+      );
+    }
+
     return mapProductRow(product, profile.role);
   },
 
