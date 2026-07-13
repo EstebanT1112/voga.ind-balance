@@ -62,7 +62,8 @@ export const returnService = {
       const selectedTotal = sale.items
         .filter((item) => item.status === "sold" && selectedIds.has(item.id))
         .reduce((sum, item) => sum + item.sale_price, 0);
-      const refundAmount = Math.min(selectedTotal, sale.paid_amount);
+      const amountAfterPendingDebt = Math.max(0, selectedTotal - sale.pending_amount);
+      const refundAmount = Math.min(amountAfterPendingDebt, sale.paid_amount);
       const returnId = await returnRepository.register({ ...data, refundAmount }, profile.id);
       return await this.getById(returnId, profile);
     } catch (error) {

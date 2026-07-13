@@ -1,16 +1,18 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
-import type { PaymentListFilters, PaymentRow, RegisterPaymentData } from "./payment.types.js";
+import type { PaymentListFilters, PaymentRefundRow, PaymentRow, RegisterPaymentData } from "./payment.types.js";
 
 const paymentSelect = "id, sale_id, registered_by, amount, kind, paid_at, note, created_at";
+const paymentWithSaleSelect = `${paymentSelect}, sales!inner(seller_id)`;
 
 export const paymentRepository = {
   async list(filters: PaymentListFilters, sellerId?: string): Promise<PaymentRow[]> {
-    let query = sellerId
-      ? supabaseAdmin
-          .from("payments")
-          .select(`${paymentSelect}, sales!inner(seller_id)`)
-          .eq("sales.seller_id", sellerId)
-      : supabaseAdmin.from("payments").select(paymentSelect);
+    let query = supabaseAdmin
+      .from("payments")
+      .select(paymentWithSaleSelect);
+
+    if (sellerId) {
+      query = query.eq("sales.seller_id", sellerId);
+    }
 
     query = query.order("paid_at", {
       ascending: false,
@@ -48,9 +50,47 @@ export const paymentRepository = {
   async findById(id: string): Promise<PaymentRow | null> {
     const { data, error } = await supabaseAdmin
       .from("payments")
-      .select(paymentSelect)
+      .select(paymentWithSaleSelect)
       .eq("id", id)
       .maybeSingle<PaymentRow>();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  },
+
+  async listBySaleIds(saleIds: string[]): Promise<PaymentRow[]> {
+    if (saleIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("payments")
+      .select(paymentSelect)
+      .in("sale_id", saleIds)
+      .order("paid_at", { ascending: false })
+      .returns<PaymentRow[]>();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  },
+
+  async listRefundsBySaleIds(saleIds: string[]): Promise<PaymentRefundRow[]> {
+    if (saleIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("returns")
+      .select("sale_id, refund_amount, returned_at")
+      .in("sale_id", saleIds)
+      .order("returned_at", { ascending: true })
+      .returns<PaymentRefundRow[]>();
 
     if (error) {
       throw error;
