@@ -57,6 +57,7 @@ import { colors, formatMoney } from "../theme/liquid";
 type SalesTab = "new" | "history";
 type ProductSelectionView = "list" | "catalog";
 type HistorySearchTarget = "buyer" | "seller" | null;
+type CalendarSelectionMode = "single" | "range";
 
 const categories: Array<{ label: string; value: ProductCategory | "all" }> = [
   { label: "Todas", value: "all" },
@@ -123,6 +124,51 @@ function formatCalendarDate(value: Date): string {
   const year = String(value.getFullYear());
 
   return `${day}/${month}/${year}`;
+}
+
+function parseCalendarDate(value: string): Date | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const year = Number(match[3]);
+  const date = new Date(year, month, day);
+
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
+}
+
+function parseCalendarRange(value: string): { from: Date; to: Date } | null {
+  const match = /^(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})$/.exec(value.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  const firstValue = match[1];
+  const secondValue = match[2];
+
+  if (!firstValue || !secondValue) {
+    return null;
+  }
+
+  const firstDate = parseCalendarDate(firstValue);
+  const secondDate = parseCalendarDate(secondValue);
+
+  if (!firstDate || !secondDate) {
+    return null;
+  }
+
+  return firstDate.getTime() <= secondDate.getTime()
+    ? { from: firstDate, to: secondDate }
+    : { from: secondDate, to: firstDate };
+}
+
+function getDayTimestamp(value: Date): number {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
 }
 
 function getCalendarDays(monthDate: Date): Date[] {
@@ -342,12 +388,18 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
 
   const filteredSales = useMemo(() => {
     const normalizedSearch = historySearch.trim().toLowerCase();
+    const selectedRange = parseCalendarRange(historySearch);
 
     if (!normalizedSearch) {
       return sales;
     }
 
     return sales.filter((sale) => {
+      if (selectedRange) {
+        const saleDay = getDayTimestamp(new Date(sale.saleDate));
+        return saleDay >= getDayTimestamp(selectedRange.from) && saleDay <= getDayTimestamp(selectedRange.to);
+      }
+
       const seller = sellers.find((item) => item.id === sale.sellerId);
       const searchValues =
         historySearchTarget === "buyer"
@@ -847,6 +899,9 @@ function HistoryContent({
   totalCount: number;
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMode, setCalendarMode] = useState<CalendarSelectionMode>("single");
+  const [rangeEnd, setRangeEnd] = useState<Date | null>(null);
+  const [rangeStart, setRangeStart] = useState<Date | null>(null);
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const calendarDays = useMemo(() => getCalendarDays(visibleMonth), [visibleMonth]);
   const today = useMemo(() => new Date(), []);
@@ -859,8 +914,57 @@ function HistoryContent({
     setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   };
 
+  const openCalendar = () => {
+    const currentRange = parseCalendarRange(historySearch);
+    const currentDate = parseCalendarDate(historySearch);
+
+    if (currentRange) {
+      setCalendarMode("range");
+      setRangeStart(currentRange.from);
+      setRangeEnd(currentRange.to);
+      setVisibleMonth(new Date(currentRange.to.getFullYear(), currentRange.to.getMonth(), 1));
+    } else {
+      setCalendarMode("single");
+      setRangeStart(currentDate);
+      setRangeEnd(null);
+
+      if (currentDate) {
+        setVisibleMonth(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
+      }
+    }
+
+    setCalendarOpen(true);
+  };
+
   const selectCalendarDate = (date: Date) => {
-    setHistorySearch(formatCalendarDate(date));
+    if (calendarMode === "single") {
+      setHistorySearch(formatCalendarDate(date));
+      setRangeStart(date);
+      setRangeEnd(null);
+      setCalendarOpen(false);
+      return;
+    }
+
+    if (!rangeStart || rangeEnd) {
+      setRangeStart(date);
+      setRangeEnd(null);
+      return;
+    }
+
+    if (isAfterDay(rangeStart, date)) {
+      setRangeStart(date);
+      setRangeEnd(rangeStart);
+    } else {
+      setRangeEnd(date);
+    }
+  };
+
+  const applyCalendarRange = () => {
+    if (!rangeStart || !rangeEnd) {
+      return;
+    }
+
+    setHistorySearch(`${formatCalendarDate(rangeStart)} - ${formatCalendarDate(rangeEnd)}`);
     setCalendarOpen(false);
   };
 
@@ -882,7 +986,7 @@ function HistoryContent({
           style={styles.searchInput}
           value={historySearch}
         />
-        <Pressable onPress={() => setCalendarOpen(true)} style={({ pressed }) => [styles.calendarTrigger, pressed && styles.pressed]}>
+        <Pressable onPress={openCalendar} style={({ pressed }) => [styles.calendarTrigger, pressed && styles.pressed]}>
           <Calendar color={colors.violet} size={17} strokeWidth={2.4} />
         </Pressable>
       </View>
@@ -914,6 +1018,29 @@ function HistoryContent({
           <Pressable style={styles.modalBackdrop} onPress={() => setCalendarOpen(false)} />
           <View style={styles.calendarSheet}>
             <View style={styles.sheetHandle} />
+
+            <View style={styles.calendarModeSelector}>
+              {[
+                { label: "Una fecha", value: "single" as const },
+                { label: "Rango", value: "range" as const },
+              ].map((item) => {
+                const active = calendarMode === item.value;
+
+                return (
+                  <Pressable
+                    key={item.value}
+                    onPress={() => {
+                      setCalendarMode(item.value);
+                      setRangeEnd(null);
+                    }}
+                    style={({ pressed }) => [styles.calendarModeButton, active && styles.calendarModeButtonActive, pressed && styles.pressed]}
+                  >
+                    <Text style={[styles.calendarModeText, active && styles.calendarModeTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <View style={styles.calendarHeader}>
               <Pressable onPress={() => changeMonth(-1)} style={({ pressed }) => [styles.calendarNavButton, pressed && styles.pressed]}>
                 <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.calendarPrevIcon} />
@@ -939,7 +1066,15 @@ function HistoryContent({
             <View style={styles.calendarGrid}>
               {calendarDays.map((date) => {
                 const inMonth = date.getMonth() === visibleMonth.getMonth();
-                const selected = historySearch === formatCalendarDate(date);
+                const selected =
+                  (rangeStart !== null && isSameDay(date, rangeStart)) ||
+                  (rangeEnd !== null && isSameDay(date, rangeEnd));
+                const withinRange =
+                  calendarMode === "range" &&
+                  rangeStart !== null &&
+                  rangeEnd !== null &&
+                  getDayTimestamp(date) > getDayTimestamp(rangeStart) &&
+                  getDayTimestamp(date) < getDayTimestamp(rangeEnd);
                 const currentDay = isSameDay(date, today);
                 const futureDay = isAfterDay(date, today);
 
@@ -953,6 +1088,7 @@ function HistoryContent({
                       !inMonth && styles.calendarDayOutside,
                       futureDay && styles.calendarDayDisabled,
                       currentDay && styles.calendarDayToday,
+                      withinRange && styles.calendarDayWithinRange,
                       selected && styles.calendarDaySelected,
                       pressed && styles.pressed,
                     ]}
@@ -973,6 +1109,20 @@ function HistoryContent({
               })}
             </View>
 
+            {calendarMode === "range" ? (
+              <View style={styles.calendarRangeSummary}>
+                <View style={styles.calendarRangeValue}>
+                  <Text style={styles.calendarRangeLabel}>Desde</Text>
+                  <Text style={styles.calendarRangeDate}>{rangeStart ? formatCalendarDate(rangeStart) : "Seleccionar"}</Text>
+                </View>
+                <ChevronRight color="rgba(155,93,229,0.42)" size={16} strokeWidth={2.4} />
+                <View style={styles.calendarRangeValue}>
+                  <Text style={styles.calendarRangeLabel}>Hasta</Text>
+                  <Text style={styles.calendarRangeDate}>{rangeEnd ? formatCalendarDate(rangeEnd) : "Seleccionar"}</Text>
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.calendarFooter}>
               <Pressable
                 onPress={() => {
@@ -983,6 +1133,19 @@ function HistoryContent({
               >
                 <Text style={styles.calendarClearText}>Limpiar fecha</Text>
               </Pressable>
+              {calendarMode === "range" ? (
+                <Pressable
+                  disabled={!rangeStart || !rangeEnd}
+                  onPress={applyCalendarRange}
+                  style={({ pressed }) => [
+                    styles.calendarApplyButton,
+                    (!rangeStart || !rangeEnd) && styles.calendarApplyButtonDisabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.calendarApplyText}>Aplicar rango</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         </View>
@@ -2047,6 +2210,32 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -12 },
     elevation: 20,
   },
+  calendarModeSelector: {
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderRadius: 16,
+    flexDirection: "row",
+    gap: 4,
+    marginBottom: 14,
+    padding: 4,
+  },
+  calendarModeButton: {
+    alignItems: "center",
+    borderRadius: 13,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 36,
+  },
+  calendarModeButtonActive: {
+    backgroundColor: colors.violet,
+  },
+  calendarModeText: {
+    color: colors.faint,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  calendarModeTextActive: {
+    color: colors.white,
+  },
   calendarHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -2107,6 +2296,10 @@ const styles = StyleSheet.create({
   calendarDayToday: {
     backgroundColor: "rgba(155,93,229,0.1)",
   },
+  calendarDayWithinRange: {
+    backgroundColor: "rgba(155,93,229,0.16)",
+    borderRadius: 8,
+  },
   calendarDaySelected: {
     backgroundColor: colors.violet,
   },
@@ -2129,6 +2322,9 @@ const styles = StyleSheet.create({
   },
   calendarFooter: {
     alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
     marginTop: 18,
   },
   calendarClearButton: {
@@ -2143,6 +2339,46 @@ const styles = StyleSheet.create({
     color: colors.violet,
     fontSize: 12,
     fontWeight: "900",
+  },
+  calendarApplyButton: {
+    backgroundColor: colors.violet,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  calendarApplyButtonDisabled: {
+    opacity: 0.35,
+  },
+  calendarApplyText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  calendarRangeSummary: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.07)",
+    borderColor: "rgba(155,93,229,0.12)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    padding: 12,
+  },
+  calendarRangeValue: {
+    flex: 1,
+  },
+  calendarRangeLabel: {
+    color: colors.faint,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  calendarRangeDate: {
+    color: colors.foreground,
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 3,
   },
   historyChecks: {
     flexDirection: "row",
