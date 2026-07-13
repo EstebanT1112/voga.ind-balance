@@ -1,6 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { createContext, type PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
-import { apiRequest } from "../lib/api";
+import { apiRequest, getFriendlyErrorMessage } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import type { ApiProfile, AuthMeResponse } from "./auth.types";
 
@@ -103,7 +103,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           setSession(data.session);
           setProfile(await loadProfile(data.session));
         } catch (error) {
-          setErrorMessage(error instanceof Error ? error.message : "No se pudo iniciar sesion");
+          setErrorMessage(getFriendlyErrorMessage(error, "No se pudo iniciar sesion"));
           setSession(null);
           setProfile(null);
         } finally {
