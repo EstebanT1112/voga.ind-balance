@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, Settings, ShoppingBag, TrendingUp, Users, WalletCards } from "lucide-react-native";
+import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, RotateCcw, Settings, ShoppingBag, TrendingUp, Users, WalletCards } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
 import {
   EmptyState,
@@ -884,6 +884,8 @@ function SellerHomeScreen({
               <MetricTile twoColumn Icon={WalletCards} label="Pendiente" tone={colors.red} value={formatMoney(dashboard.totals.pendingAmount)} />
               <MetricTile twoColumn Icon={ShoppingBag} label="Ventas" tone={sellerColor} value={String(dashboard.totals.saleCount)} />
               <MetricTile twoColumn Icon={ReceiptText} label="Comisión 15%" tone={colors.coral} value={formatMoney(dashboard.totals.commissionAmount)} />
+              <MetricTile twoColumn Icon={AlertCircle} label="Vencidas" tone={colors.red} value={String(dashboard.totals.overdueCount)} />
+              <MetricTile twoColumn Icon={RotateCcw} label="En plazo" tone={colors.rose} value={String(dashboard.totals.returnWindowCount)} />
             </View>
           </LiquidCard>
 
@@ -904,7 +906,7 @@ function SellerHomeLoadingSkeleton() {
         </View>
         <SkeletonBlock style={styles.homeSkeletonTotal} />
         <View style={[styles.homeSkeletonMetrics, styles.sellerSkeletonMetrics]}>
-          {Array.from({ length: 4 }, (_, index) => (
+          {Array.from({ length: 6 }, (_, index) => (
             <View key={index} style={[styles.homeSkeletonMetric, styles.sellerSkeletonMetric]}>
               <SkeletonBlock style={styles.homeSkeletonMetricLabel} />
               <SkeletonBlock style={styles.homeSkeletonMetricValue} />

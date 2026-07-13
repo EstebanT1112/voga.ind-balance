@@ -119,7 +119,9 @@ export interface SellerDashboardReturnRow {
 }
 
 export interface SellerDashboardData {
+  overdueCount: number;
   payments: SellerDashboardMovementRow[];
+  returnWindowCount: number;
   returns: SellerDashboardReturnRow[];
   sales: SellerDashboardSaleRow[];
 }
@@ -132,7 +134,9 @@ export interface ApiSellerDashboard {
   totals: {
     collectedAmount: number;
     commissionAmount: number;
+    overdueCount: number;
     pendingAmount: number;
+    returnWindowCount: number;
     saleCount: number;
     soldAmount: number;
   };
