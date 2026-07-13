@@ -11,6 +11,12 @@ export interface PaymentRow {
   created_at: string;
 }
 
+export interface PaymentRefundRow {
+  sale_id: string;
+  refund_amount: number;
+  returned_at: string;
+}
+
 export interface ApiPayment {
   id: string;
   saleId: string;

@@ -633,7 +633,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
                 <TextInput
                   onChangeText={(value) => setForm((current) => ({ ...current, buyerFullName: value }))}
                   placeholder="Ej: Camila Suarez"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.buyerFullName}
                 />
@@ -644,7 +644,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
                   inputMode="tel"
                   onChangeText={(value) => setForm((current) => ({ ...current, buyerPhone: value }))}
                   placeholder="+54 9 11..."
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.buyerPhone}
                 />
@@ -657,7 +657,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
                     setForm((current) => ({ ...current, initialPaymentAmount: value.replace(/\D/g, "") }))
                   }
                   placeholder="0"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.initialPaymentAmount}
                 />
@@ -785,7 +785,7 @@ function NewSaleContent({
           autoCapitalize="none"
           onChangeText={setSearch}
           placeholder="Buscar producto..."
-          placeholderTextColor="rgba(90,60,120,0.36)"
+          placeholderTextColor="rgba(255,255,255,0.36)"
           style={styles.searchInput}
           value={search}
         />
@@ -982,7 +982,7 @@ function HistoryContent({
                 ? "Buscar vendedora o fecha..."
                 : "Buscar nombre o fecha..."
           }
-          placeholderTextColor="rgba(90,60,120,0.36)"
+          placeholderTextColor="rgba(255,255,255,0.36)"
           style={styles.searchInput}
           value={historySearch}
         />
@@ -1424,7 +1424,7 @@ function CartItem({ onRemove, product }: { onRemove: () => void; product: Produc
       </View>
       <Text style={styles.cartPrice}>{formatMoney(product.salePrice)}</Text>
       <Pressable onPress={onRemove} style={styles.removeButton}>
-        <X color="rgba(90,60,120,0.42)" size={14} strokeWidth={2.5} />
+        <X color="rgba(255,255,255,0.42)" size={14} strokeWidth={2.5} />
       </Pressable>
     </View>
   );
@@ -1517,7 +1517,8 @@ export function SaleDetail({
     () => sale.items.filter((item) => selectedReturnItemIds.includes(item.id)).reduce((sum, item) => sum + item.salePrice, 0),
     [sale.items, selectedReturnItemIds],
   );
-  const returnRefundAmount = Math.min(selectedReturnTotal, sale.paidAmount);
+  const returnDebtReduction = Math.min(selectedReturnTotal, sale.pendingAmount);
+  const returnRefundAmount = Math.min(Math.max(0, selectedReturnTotal - sale.pendingAmount), sale.paidAmount);
 
   const loadPayments = useCallback(async () => {
     if (!session) {
@@ -1709,7 +1710,7 @@ export function SaleDetail({
       setReturnForm(initialReturnForm);
       setSelectedReturnItemIds([]);
       setSuccessMessage({
-        detail: `${selectedReturnItemIds.length} ${selectedReturnItemIds.length === 1 ? "producto" : "productos"} - ${formatMoney(returnRefundAmount)}`,
+        detail: `Deuda: ${formatMoney(returnDebtReduction)} - Reintegro: ${formatMoney(returnRefundAmount)}`,
         title: "Devolucion registrada",
       });
     } catch (error) {
@@ -1732,7 +1733,7 @@ export function SaleDetail({
             <Text style={styles.detailStrong}>{sale.buyerFullName}</Text>
           </View>
           <View style={styles.detailLine}>
-            <Phone color="rgba(90,60,120,0.45)" size={14} strokeWidth={2.4} />
+            <Phone color="rgba(255,255,255,0.45)" size={14} strokeWidth={2.4} />
             <Text style={styles.detailMuted}>{sale.buyerPhone}</Text>
           </View>
         </View>
@@ -1790,7 +1791,7 @@ export function SaleDetail({
               <Text style={styles.returnButtonText}>Gestionar</Text>
             </Pressable>
           ) : (
-            <GlassBadge label="Sin devolucion" tone="rgba(90,60,120,0.5)" />
+            <GlassBadge label="Sin devolucion" tone="rgba(255,255,255,0.5)" />
           )}
         </View>
       </DetailSection>
@@ -1839,11 +1840,19 @@ export function SaleDetail({
                     ))}
                 </View>
 
-                <View style={styles.returnConfirmationTotal}>
-                  <Text style={styles.detailMuted}>Reintegro</Text>
-                  <Text style={styles.returnConfirmationAmount}>
-                    {formatMoney(returnRefundAmount)}
-                  </Text>
+                <View style={styles.returnConfirmationTotals}>
+                  <View style={styles.returnConfirmationTotal}>
+                    <Text style={styles.detailMuted}>Se descuenta de la deuda</Text>
+                    <Text style={[styles.returnConfirmationAmount, { color: colors.violet }]}>
+                      {formatMoney(returnDebtReduction)}
+                    </Text>
+                  </View>
+                  <View style={styles.returnConfirmationTotal}>
+                    <Text style={styles.detailMuted}>Dinero a devolver</Text>
+                    <Text style={styles.returnConfirmationAmount}>
+                      {formatMoney(returnRefundAmount)}
+                    </Text>
+                  </View>
                 </View>
 
                 <View style={styles.returnConfirmationActions}>
@@ -1871,7 +1880,8 @@ export function SaleDetail({
             <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
               <View style={styles.paymentSummary}>
                 <AmountLine color={colors.foreground} label="Productos seleccionados" value={selectedReturnTotal} />
-                <AmountLine color={colors.mint} label="Reintegro automatico" value={returnRefundAmount} />
+                <AmountLine color={colors.violet} label="Se descuenta de la deuda" value={returnDebtReduction} />
+                <AmountLine color={colors.red} label="Dinero a devolver" value={returnRefundAmount} />
               </View>
 
               <View style={styles.returnItems}>
@@ -1903,7 +1913,7 @@ export function SaleDetail({
                 <TextInput
                   onChangeText={(value) => setReturnForm((current) => ({ ...current, reason: value }))}
                   placeholder="Ej: Producto devuelto"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={returnForm.reason}
                 />
@@ -1947,7 +1957,7 @@ export function SaleDetail({
                   inputMode="numeric"
                   onChangeText={(value) => setPaymentForm((current) => ({ ...current, amount: value.replace(/\D/g, "") }))}
                   placeholder="0"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={paymentForm.amount}
                 />
@@ -1957,7 +1967,7 @@ export function SaleDetail({
                 <TextInput
                   onChangeText={(value) => setPaymentForm((current) => ({ ...current, note: value }))}
                   placeholder="Opcional"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={paymentForm.note}
                 />
@@ -2112,6 +2122,7 @@ function AmountLine({ color, label, value }: { color: string; label: string; val
 
 const styles = StyleSheet.create({
   root: {
+    backgroundColor: colors.background,
     flex: 1,
   },
   content: {
@@ -2133,8 +2144,8 @@ const styles = StyleSheet.create({
     lineHeight: 31,
   },
   segmented: {
-    backgroundColor: "rgba(255,255,255,0.48)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 20,
     borderWidth: 1,
     flexDirection: "row",
@@ -2169,8 +2180,8 @@ const styles = StyleSheet.create({
   },
   searchBox: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 20,
     borderWidth: 1,
     flexDirection: "row",
@@ -2196,16 +2207,16 @@ const styles = StyleSheet.create({
     width: 32,
   },
   calendarSheet: {
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderTopLeftRadius: 34,
     borderTopRightRadius: 34,
     borderWidth: 1,
     paddingBottom: 24,
     paddingHorizontal: 20,
     paddingTop: 10,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.5,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: -12 },
     elevation: 20,
@@ -2269,7 +2280,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   calendarWeekText: {
-    color: "rgba(90,60,120,0.58)",
+    color: "rgba(255,255,255,0.58)",
     flex: 1,
     fontSize: 12,
     fontWeight: "900",
@@ -2309,10 +2320,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   calendarDayTextOutside: {
-    color: "rgba(90,60,120,0.54)",
+    color: "rgba(255,255,255,0.54)",
   },
   calendarDayTextDisabled: {
-    color: "rgba(90,60,120,0.26)",
+    color: "rgba(255,255,255,0.26)",
   },
   calendarDayTextToday: {
     color: colors.violet,
@@ -2386,8 +2397,8 @@ const styles = StyleSheet.create({
   },
   historyCheck: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.4)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
@@ -2401,7 +2412,7 @@ const styles = StyleSheet.create({
   },
   historyCheckIcon: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.64)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderColor: "rgba(155,93,229,0.2)",
     borderRadius: 999,
     borderWidth: 1,
@@ -2411,7 +2422,7 @@ const styles = StyleSheet.create({
   },
   historyCheckIconActive: {
     backgroundColor: colors.violet,
-    borderColor: "rgba(255,255,255,0.75)",
+    borderColor: "rgba(255,255,255,0.14)",
   },
   historyCheckText: {
     color: colors.muted,
@@ -2426,8 +2437,8 @@ const styles = StyleSheet.create({
     paddingRight: 20,
   },
   filterChip: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 15,
@@ -2446,8 +2457,8 @@ const styles = StyleSheet.create({
   },
   viewToggle: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.38)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
@@ -2485,8 +2496,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   catalogSkeletonCard: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     height: 278,
@@ -2533,8 +2544,8 @@ const styles = StyleSheet.create({
   },
   listSkeletonCard: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     flexDirection: "row",
@@ -2566,8 +2577,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   saleSkeletonCard: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 24,
     borderWidth: 1,
     gap: 14,
@@ -2627,7 +2638,7 @@ const styles = StyleSheet.create({
   },
   catalogSelectBubble: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderColor: "rgba(155,93,229,0.2)",
     borderRadius: 999,
     borderWidth: 1,
@@ -2640,7 +2651,7 @@ const styles = StyleSheet.create({
   },
   catalogSelectBubbleActive: {
     backgroundColor: colors.violet,
-    borderColor: "rgba(255,255,255,0.82)",
+    borderColor: "rgba(255,255,255,0.14)",
   },
   catalogProductBody: {
     flex: 1,
@@ -2730,7 +2741,7 @@ const styles = StyleSheet.create({
   },
   addBubble: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.55)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderColor: "rgba(155,93,229,0.2)",
     borderRadius: 999,
     borderWidth: 1,
@@ -2743,8 +2754,8 @@ const styles = StyleSheet.create({
   },
   saleSummaryDock: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.88)",
-    borderColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "#000000",
+    borderColor: "rgba(255,255,255,0.24)",
     borderRadius: 24,
     borderWidth: 1,
     bottom: 92,
@@ -2754,8 +2765,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     position: "absolute",
     right: 20,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.2,
+    shadowColor: "#000000",
+    shadowOpacity: 0.55,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 10 },
     elevation: 12,
@@ -2911,7 +2922,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalBackdrop: {
-    backgroundColor: "rgba(20,10,35,0.55)",
+    backgroundColor: "rgba(0,0,0,0.72)",
     bottom: 0,
     left: 0,
     position: "absolute",
@@ -2919,16 +2930,16 @@ const styles = StyleSheet.create({
     top: 0,
   },
   sheet: {
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderTopLeftRadius: 34,
     borderTopRightRadius: 34,
     borderWidth: 1,
     maxHeight: "92%",
     paddingHorizontal: 20,
     paddingTop: 10,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.5,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: -12 },
     elevation: 20,
@@ -3037,8 +3048,8 @@ const styles = StyleSheet.create({
   },
   inputWrap: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
@@ -3051,8 +3062,8 @@ const styles = StyleSheet.create({
   },
   sellerOption: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
@@ -3128,7 +3139,7 @@ const styles = StyleSheet.create({
   },
   creationOverlay: {
     alignItems: "center",
-    backgroundColor: "rgba(20,10,35,0.28)",
+    backgroundColor: "rgba(0,0,0,0.68)",
     bottom: 0,
     justifyContent: "center",
     left: 0,
@@ -3140,14 +3151,14 @@ const styles = StyleSheet.create({
   },
   creationToast: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderColor: "rgba(255,255,255,0.86)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderRadius: 30,
     borderWidth: 1,
     paddingHorizontal: 26,
     paddingVertical: 28,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.28,
+    shadowColor: "#000000",
+    shadowOpacity: 0.48,
     shadowRadius: 28,
     shadowOffset: { width: 0, height: 16 },
     width: "100%",
@@ -3155,7 +3166,7 @@ const styles = StyleSheet.create({
   creationIconWrap: {
     alignItems: "center",
     backgroundColor: colors.mint,
-    borderColor: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 2,
     height: 66,
@@ -3205,8 +3216,8 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 14,
     borderWidth: 1,
     height: 38,
@@ -3399,6 +3410,10 @@ const styles = StyleSheet.create({
     padding: 14,
     width: "100%",
   },
+  returnConfirmationTotals: {
+    gap: 8,
+    width: "100%",
+  },
   returnConfirmationAmount: {
     color: colors.red,
     fontSize: 19,
@@ -3437,8 +3452,8 @@ const styles = StyleSheet.create({
   },
   returnItemOption: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
