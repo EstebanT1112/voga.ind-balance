@@ -219,6 +219,7 @@ function getDaysFromToday(value: string): number {
 
 export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (hidden: boolean) => void } = {}) {
   const { profile, session } = useAuth();
+  const isOwner = profile?.role === "owner";
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [createdSale, setCreatedSale] = useState<Sale | null>(null);
@@ -315,6 +316,12 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
   }, [loadAvailableProducts, loadSales, loadSellers]);
 
   useEffect(() => {
+    if (!isOwner && historySearchTarget === "seller") {
+      setHistorySearchTarget(null);
+    }
+  }, [historySearchTarget, isOwner]);
+
+  useEffect(() => {
     onChromeHiddenChange?.(selectedSale !== null);
 
     return () => {
@@ -402,7 +409,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
 
       const seller = sellers.find((item) => item.id === sale.sellerId);
       const searchValues =
-        historySearchTarget === "buyer"
+        !isOwner || historySearchTarget === "buyer"
           ? [sale.buyerFullName]
           : historySearchTarget === "seller"
             ? [seller?.fullName ?? ""]
@@ -412,7 +419,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
 
       return matchesSearch || matchesDate;
     });
-  }, [historySearch, historySearchTarget, sales, sellers]);
+  }, [historySearch, historySearchTarget, isOwner, sales, sellers]);
 
   const resetForm = () => {
     setForm({ ...initialForm, sellerId: profile?.id ?? "" });
@@ -564,6 +571,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
             filteredCount={filteredSales.length}
             historySearch={historySearch}
             historySearchTarget={historySearchTarget}
+            isOwner={isOwner}
             loading={loading}
             onRetry={loadSales}
             onSalePress={setSelectedSale}
@@ -885,6 +893,7 @@ function HistoryContent({
   filteredCount,
   historySearch,
   historySearchTarget,
+  isOwner,
   loading,
   onRetry,
   onSalePress,
@@ -898,6 +907,7 @@ function HistoryContent({
   filteredCount: number;
   historySearch: string;
   historySearchTarget: HistorySearchTarget;
+  isOwner: boolean;
   loading: boolean;
   onRetry: () => void;
   onSalePress: (sale: Sale) => void;
@@ -985,7 +995,7 @@ function HistoryContent({
           autoCapitalize="none"
           onChangeText={setHistorySearch}
           placeholder={
-            historySearchTarget === "buyer"
+            !isOwner || historySearchTarget === "buyer"
               ? "Buscar compradora o fecha..."
               : historySearchTarget === "seller"
                 ? "Buscar vendedora o fecha..."
@@ -1000,27 +1010,29 @@ function HistoryContent({
         </Pressable>
       </View>
 
-      <View style={styles.historyChecks}>
-        {[
-          { label: "Compradora", value: "buyer" as const },
-          { label: "Vendedora", value: "seller" as const },
-        ].map((item) => {
-          const active = historySearchTarget === item.value;
+      {isOwner ? (
+        <View style={styles.historyChecks}>
+          {[
+            { label: "Compradora", value: "buyer" as const },
+            { label: "Vendedora", value: "seller" as const },
+          ].map((item) => {
+            const active = historySearchTarget === item.value;
 
-          return (
-            <Pressable
-              key={item.value}
-              onPress={() => setHistorySearchTarget(active ? null : item.value)}
-              style={({ pressed }) => [styles.historyCheck, active && styles.historyCheckActive, pressed && styles.pressed]}
-            >
-              <View style={[styles.historyCheckIcon, active && styles.historyCheckIconActive]}>
-                {active ? <CheckCircle2 color={colors.white} size={14} strokeWidth={2.6} /> : null}
-              </View>
-              <Text style={[styles.historyCheckText, active && styles.historyCheckTextActive]}>{item.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+            return (
+              <Pressable
+                key={item.value}
+                onPress={() => setHistorySearchTarget(active ? null : item.value)}
+                style={({ pressed }) => [styles.historyCheck, active && styles.historyCheckActive, pressed && styles.pressed]}
+              >
+                <View style={[styles.historyCheckIcon, active && styles.historyCheckIconActive]}>
+                  {active ? <CheckCircle2 color={colors.white} size={14} strokeWidth={2.6} /> : null}
+                </View>
+                <Text style={[styles.historyCheckText, active && styles.historyCheckTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       <Modal animationType="slide" transparent visible={calendarOpen} onRequestClose={() => setCalendarOpen(false)}>
         <View style={styles.modalRoot}>
@@ -1165,7 +1177,7 @@ function HistoryContent({
       ) : null}
 
       <View>
-        <SectionLabel>Ventas realizadas</SectionLabel>
+        <SectionLabel>{isOwner ? "Ventas realizadas" : "Mis ventas"}</SectionLabel>
         <View style={styles.salesList}>
           {loading && totalCount === 0 ? <SalesHistorySkeleton /> : null}
           {sales.map((sale) => {
@@ -1177,7 +1189,11 @@ function HistoryContent({
         {!loading && !errorMessage && filteredCount === 0 ? (
           <LiquidCard style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>{totalCount === 0 ? "Sin ventas registradas" : "Sin resultados"}</Text>
-            {totalCount > 0 ? <Text style={styles.emptyText}>Proba cambiar el nombre, el criterio o la fecha de venta.</Text> : null}
+            {totalCount > 0 ? (
+              <Text style={styles.emptyText}>
+                {isOwner ? "Probá cambiar el nombre, el criterio o la fecha de venta." : "Probá cambiar la compradora o la fecha de venta."}
+              </Text>
+            ) : null}
           </LiquidCard>
         ) : null}
       </View>
