@@ -1,3 +1,4 @@
+import { isProductExpense } from "./expense.types.js";
 import type { ApiExpense, CreateExpenseData, ExpenseRow, UpdateExpenseData } from "./expense.types.js";
 
 export function mapExpenseRow(row: ExpenseRow): ApiExpense {
@@ -11,6 +12,7 @@ export function mapExpenseRow(row: ExpenseRow): ApiExpense {
     note: row.note,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isProductExpense: isProductExpense(row),
   };
 }
 

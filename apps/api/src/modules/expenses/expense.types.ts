@@ -10,6 +10,13 @@ export interface ExpenseRow {
   updated_at: string;
 }
 
+export const PRODUCT_EXPENSE_CATEGORY = "Productos";
+export const PRODUCT_EXPENSE_NOTE = "Generado automaticamente al cargar producto";
+
+export function isProductExpense(expense: Pick<ExpenseRow, "category" | "note">): boolean {
+  return expense.category === PRODUCT_EXPENSE_CATEGORY && expense.note === PRODUCT_EXPENSE_NOTE;
+}
+
 export interface ApiExpense {
   id: string;
   createdBy: string;
@@ -20,6 +27,7 @@ export interface ApiExpense {
   note: string | null;
   createdAt: string;
   updatedAt: string;
+  isProductExpense: boolean;
 }
 
 export interface ExpenseListFilters {
