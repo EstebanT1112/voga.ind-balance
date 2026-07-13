@@ -16,7 +16,6 @@ export const listReturnsQuerySchema = z.object({
 export const registerReturnSchema = z.object({
   saleId: uuidSchema,
   saleItemIds: z.array(uuidSchema).min(1),
-  refundAmount: z.number().int().nonnegative().default(0),
   reason: z.string().trim().min(1).nullable().optional(),
   returnedAt: z.string().datetime().optional(),
 });

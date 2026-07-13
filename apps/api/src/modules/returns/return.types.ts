@@ -53,7 +53,10 @@ export interface ReturnListFilters {
 export interface RegisterReturnData {
   saleId: string;
   saleItemIds: string[];
-  refundAmount: number;
   reason?: string | null;
   returnedAt?: string;
+}
+
+export interface RegisterReturnCommand extends RegisterReturnData {
+  refundAmount: number;
 }

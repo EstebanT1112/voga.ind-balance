@@ -52,7 +52,18 @@ export const returnService = {
 
   async register(data: RegisterReturnData, profile: ApiProfile): Promise<ApiReturn> {
     try {
-      const returnId = await returnRepository.register(data, profile.id);
+      const sale = await saleRepository.findById(data.saleId);
+
+      if (!sale) {
+        throw new HttpError(404, "not_found", "Sale not found");
+      }
+
+      const selectedIds = new Set(data.saleItemIds);
+      const selectedTotal = sale.items
+        .filter((item) => item.status === "sold" && selectedIds.has(item.id))
+        .reduce((sum, item) => sum + item.sale_price, 0);
+      const refundAmount = Math.min(selectedTotal, sale.paid_amount);
+      const returnId = await returnRepository.register({ ...data, refundAmount }, profile.id);
       return await this.getById(returnId, profile);
     } catch (error) {
       throw new HttpError(400, "bad_request", getSupabaseErrorMessage(error));
