@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -32,7 +34,17 @@ import {
   X,
 } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
-import { GlassBadge, LiquidCard, SectionLabel } from "../components/Liquid";
+import {
+  ErrorState,
+  GlassBadge,
+  InternalHeader,
+  LiquidCard,
+  ScreenEnter,
+  SectionLabel,
+  SkeletonBlock,
+  SkeletonGroup,
+  SuccessToast,
+} from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import { getProductPhotoUrl } from "../products/productPhotos";
 import type { Product, ProductCategory, ProductsResponse } from "../products/product.types";
@@ -86,7 +98,6 @@ const initialPaymentForm = {
 };
 
 const initialReturnForm = {
-  refundAmount: "",
   reason: "",
 };
 
@@ -161,15 +172,17 @@ function getDaysFromToday(value: string): number {
 }
 
 export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (hidden: boolean) => void } = {}) {
-  const { session } = useAuth();
+  const { profile, session } = useAuth();
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [createdSale, setCreatedSale] = useState<Sale | null>(null);
   const [category, setCategory] = useState<ProductCategory | "all">("all");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [form, setForm] = useState(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
   const [productSelectionView, setProductSelectionView] = useState<ProductSelectionView>("catalog");
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesTab, setSalesTab] = useState<SalesTab>("new");
@@ -180,6 +193,9 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [sellers, setSellers] = useState<ApiProfile[]>([]);
+  const successFade = useRef(new Animated.Value(0)).current;
+  const successScale = useRef(new Animated.Value(0.86)).current;
+  const successTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadSales = useCallback(async () => {
     if (!session) {
@@ -209,7 +225,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
     }
 
     setProductsLoading(true);
-    setFormError(null);
+    setProductsError(null);
 
     try {
       const response = await apiRequest<ProductsResponse>("/products?status=available", {
@@ -219,14 +235,20 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
 
       setAvailableProducts(response.items);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "No se pudieron cargar los productos disponibles");
+      setProductsError(error instanceof Error ? error.message : "No se pudieron cargar los productos disponibles");
     } finally {
       setProductsLoading(false);
     }
   }, [session]);
 
   const loadSellers = useCallback(async () => {
-    if (!session) {
+    if (!session || !profile) {
+      return;
+    }
+
+    if (profile.role === "seller") {
+      setSellers([profile]);
+      setForm((current) => (current.sellerId ? current : { ...current, sellerId: profile.id }));
       return;
     }
 
@@ -234,13 +256,11 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
       method: "GET",
       session,
     });
-    const activeSellers = response.items.filter((item) => item.role === "seller");
+    const profiles = [profile, ...response.items.filter((item) => item.id !== profile.id)];
 
-    setSellers(response.items);
-    setForm((current) =>
-      current.sellerId || activeSellers.length === 0 ? current : { ...current, sellerId: activeSellers[0]!.id },
-    );
-  }, [session]);
+    setSellers(profiles);
+    setForm((current) => (current.sellerId ? current : { ...current, sellerId: profile.id }));
+  }, [profile, session]);
 
   useEffect(() => {
     loadSales();
@@ -255,6 +275,47 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
       onChromeHiddenChange?.(false);
     };
   }, [onChromeHiddenChange, selectedSale]);
+
+  useEffect(() => {
+    if (!createdSale) {
+      return;
+    }
+
+    successFade.setValue(0);
+    successScale.setValue(0.86);
+
+    Animated.parallel([
+      Animated.timing(successFade, {
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.spring(successScale, {
+        damping: 12,
+        mass: 0.75,
+        stiffness: 150,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    successTimeout.current = setTimeout(() => {
+      Animated.timing(successFade, {
+        duration: 260,
+        easing: Easing.in(Easing.cubic),
+        toValue: 0,
+        useNativeDriver: true,
+      }).start(() => setCreatedSale(null));
+    }, 1550);
+
+    return () => {
+      if (successTimeout.current) {
+        clearTimeout(successTimeout.current);
+        successTimeout.current = null;
+      }
+    };
+  }, [createdSale, successFade, successScale]);
 
   const selectedProducts = useMemo(
     () => availableProducts.filter((product) => selectedProductIds.includes(product.id)),
@@ -302,7 +363,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
   }, [historySearch, historySearchTarget, sales, sellers]);
 
   const resetForm = () => {
-    setForm(initialForm);
+    setForm({ ...initialForm, sellerId: profile?.id ?? "" });
     setFormError(null);
     setSelectedProductIds([]);
   };
@@ -360,7 +421,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
         sellerId: form.sellerId || undefined,
       };
 
-      await apiRequest<{ item: Sale }>("/sales", {
+      const response = await apiRequest<{ item: Sale }>("/sales", {
         body: payload,
         method: "POST",
         session,
@@ -369,6 +430,8 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
       setCartOpen(false);
       resetForm();
       setSalesTab("history");
+      setSales((current) => [response.item, ...current.filter((sale) => sale.id !== response.item.id)]);
+      setCreatedSale(response.item);
       await Promise.all([loadSales(), loadAvailableProducts()]);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "No se pudo crear la venta");
@@ -395,7 +458,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
   return (
     <View style={styles.root}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, salesTab === "new" && styles.contentWithSummary]}
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
@@ -433,6 +496,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
             filteredProducts={filteredProducts}
             formError={formError}
             productsLoading={productsLoading}
+            productsError={productsError}
             productSelectionView={productSelectionView}
             search={search}
             selectedProductIds={selectedProductIds}
@@ -440,6 +504,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
             setProductSelectionView={setProductSelectionView}
             setSearch={setSearch}
             toggleProduct={toggleProduct}
+            onRetry={loadAvailableProducts}
           />
         ) : (
           <HistoryContent
@@ -448,6 +513,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
             historySearch={historySearch}
             historySearchTarget={historySearchTarget}
             loading={loading}
+            onRetry={loadSales}
             onSalePress={setSelectedSale}
             sales={filteredSales}
             setHistorySearch={setHistorySearch}
@@ -458,14 +524,33 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
         )}
       </ScrollView>
 
-      {salesTab === "new" && selectedProductIds.length > 0 ? (
-        <Pressable onPress={() => setCartOpen(true)} style={({ pressed }) => [styles.cartFab, pressed && styles.pressed]}>
-          <ShoppingCart color={colors.white} size={18} strokeWidth={2.5} />
-          <Text style={styles.cartFabTotal}>{formatMoney(selectedTotal)}</Text>
-          <View style={styles.cartCount}>
-            <Text style={styles.cartCountText}>{selectedProductIds.length}</Text>
+      {salesTab === "new" ? (
+        <View style={styles.saleSummaryDock}>
+          <View style={styles.saleSummaryMetric}>
+            <Text style={styles.saleSummaryLabel}>Productos</Text>
+            <Text style={styles.saleSummaryCount}>{selectedProductIds.length}</Text>
           </View>
-        </Pressable>
+          <View style={styles.saleSummaryDivider} />
+          <View style={styles.saleSummaryTotalWrap}>
+            <Text style={styles.saleSummaryLabel}>Total</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.72} numberOfLines={1} style={styles.saleSummaryTotal}>
+              {formatMoney(selectedTotal)}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Revisar venta"
+            accessibilityRole="button"
+            disabled={selectedProductIds.length === 0}
+            onPress={() => setCartOpen(true)}
+            style={({ pressed }) => [
+              styles.saleSummaryButton,
+              selectedProductIds.length === 0 && styles.saleSummaryButtonDisabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ShoppingCart color={colors.white} size={19} strokeWidth={2.5} />
+          </Pressable>
+        </View>
       ) : null}
 
       <Modal animationType="slide" transparent visible={cartOpen} onRequestClose={closeCart}>
@@ -530,10 +615,9 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
                 <Text style={styles.formLabel}>Vendedora</Text>
                 <View style={styles.sellerPicker}>
                   {sellers
-                    .filter((seller) => seller.role === "seller")
+                    .filter((seller) => seller.active && (seller.role === "seller" || seller.id === profile?.id))
                     .map((seller) => {
                       const active = form.sellerId === seller.id;
-                      const color = seller.color ?? colors.violet;
 
                       return (
                         <Pressable
@@ -541,16 +625,13 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
                           onPress={() => setForm((current) => ({ ...current, sellerId: seller.id }))}
                           style={({ pressed }) => [styles.sellerOption, active && styles.sellerOptionActive, pressed && styles.pressed]}
                         >
-                          <Avatar color={color} initials={getInitials(seller.fullName)} size={26} />
+                          <Avatar color={seller.color ?? colors.violet} initials={getInitials(seller.fullName)} size={26} />
                           <Text numberOfLines={1} style={[styles.sellerOptionText, active && styles.sellerOptionTextActive]}>
-                            {seller.fullName}
+                            {seller.id === profile?.id ? `${seller.fullName} (yo)` : seller.fullName}
                           </Text>
                         </Pressable>
                       );
                     })}
-                  {sellers.filter((seller) => seller.role === "seller").length === 0 ? (
-                    <Text style={styles.noSellers}>Sin vendedoras activas.</Text>
-                  ) : null}
                 </View>
               </View>
 
@@ -577,6 +658,28 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {createdSale ? (
+        <Animated.View pointerEvents="none" style={[styles.creationOverlay, { opacity: successFade }]}>
+          <Animated.View style={[styles.creationToast, { transform: [{ scale: successScale }] }]}>
+            <View style={styles.creationIconWrap}>
+              <CheckCircle2 color={colors.white} size={34} strokeWidth={2.6} />
+            </View>
+            <Text style={styles.creationTitle}>Venta registrada</Text>
+            <Text style={styles.creationAmount}>{formatMoney(createdSale.totalAmount)}</Text>
+            <View
+              style={[
+                styles.creationStatus,
+                { backgroundColor: `${paymentTones[createdSale.paymentStatus]}18` },
+              ]}
+            >
+              <Text style={[styles.creationStatusText, { color: paymentTones[createdSale.paymentStatus] }]}>
+                {paymentLabels[createdSale.paymentStatus]}
+              </Text>
+            </View>
+          </Animated.View>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -598,6 +701,7 @@ function NewSaleContent({
   filteredProducts,
   formError,
   productsLoading,
+  productsError,
   productSelectionView,
   search,
   selectedProductIds,
@@ -605,11 +709,13 @@ function NewSaleContent({
   setProductSelectionView,
   setSearch,
   toggleProduct,
+  onRetry,
 }: {
   category: ProductCategory | "all";
   filteredProducts: Product[];
   formError: string | null;
   productsLoading: boolean;
+  productsError: string | null;
   productSelectionView: ProductSelectionView;
   search: string;
   selectedProductIds: string[];
@@ -617,6 +723,7 @@ function NewSaleContent({
   setProductSelectionView: (view: ProductSelectionView) => void;
   setSearch: (search: string) => void;
   toggleProduct: (productId: string) => void;
+  onRetry: () => void;
 }) {
   return (
     <>
@@ -667,7 +774,9 @@ function NewSaleContent({
         })}
       </View>
 
-      {productSelectionView === "list" ? (
+      {productsLoading && filteredProducts.length === 0 ? (
+        <ProductSelectionSkeleton view={productSelectionView} />
+      ) : productSelectionView === "list" ? (
         <View style={styles.productList}>
           {filteredProducts.map((product) => (
             <ProductOption
@@ -691,12 +800,19 @@ function NewSaleContent({
         </View>
       )}
 
-      {productsLoading ? <ActivityIndicator color={colors.violet} /> : null}
-      {!productsLoading && filteredProducts.length === 0 ? (
+      {!productsLoading && !productsError && filteredProducts.length === 0 ? (
         <LiquidCard style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Sin productos disponibles</Text>
           <Text style={styles.emptyText}>Los productos disponibles para vender van a aparecer en esta sección.</Text>
         </LiquidCard>
+      ) : null}
+      {productsError ? (
+        <ErrorState
+          message={productsError}
+          onRetry={onRetry}
+          retrying={productsLoading}
+          title="No se pudieron cargar los productos"
+        />
       ) : null}
       {formError ? <Text style={styles.formError}>{formError}</Text> : null}
     </>
@@ -709,6 +825,7 @@ function HistoryContent({
   historySearch,
   historySearchTarget,
   loading,
+  onRetry,
   onSalePress,
   sales,
   setHistorySearch,
@@ -721,6 +838,7 @@ function HistoryContent({
   historySearch: string;
   historySearchTarget: HistorySearchTarget;
   loading: boolean;
+  onRetry: () => void;
   onSalePress: (sale: Sale) => void;
   sales: Sale[];
   setHistorySearch: (search: string) => void;
@@ -871,22 +989,20 @@ function HistoryContent({
       </Modal>
 
       {errorMessage ? (
-        <LiquidCard style={styles.errorCard}>
-          <Text style={styles.errorTitle}>No se pudieron cargar las ventas</Text>
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        </LiquidCard>
+        <ErrorState message={errorMessage} onRetry={onRetry} retrying={loading} title="No se pudieron cargar las ventas" />
       ) : null}
 
       <View>
         <SectionLabel>Ventas realizadas</SectionLabel>
         <View style={styles.salesList}>
+          {loading && totalCount === 0 ? <SalesHistorySkeleton /> : null}
           {sales.map((sale) => {
             const seller = sellers.find((item) => item.id === sale.sellerId);
 
             return <SaleCard key={sale.id} sale={sale} seller={seller} onPress={() => onSalePress(sale)} />;
           })}
         </View>
-        {!loading && filteredCount === 0 ? (
+        {!loading && !errorMessage && filteredCount === 0 ? (
           <LiquidCard style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>{totalCount === 0 ? "Sin ventas registradas" : "Sin resultados"}</Text>
             {totalCount > 0 ? <Text style={styles.emptyText}>Proba cambiar el nombre, el criterio o la fecha de venta.</Text> : null}
@@ -894,6 +1010,64 @@ function HistoryContent({
         ) : null}
       </View>
     </>
+  );
+}
+
+function ProductSelectionSkeleton({ view }: { view: ProductSelectionView }) {
+  if (view === "list") {
+    return (
+      <SkeletonGroup style={styles.productList}>
+        {Array.from({ length: 4 }, (_, index) => (
+          <View key={index} style={styles.listSkeletonCard}>
+            <SkeletonBlock style={styles.listSkeletonImage} />
+            <View style={styles.listSkeletonBody}>
+              <SkeletonBlock style={styles.listSkeletonTitle} />
+              <SkeletonBlock style={styles.listSkeletonMeta} />
+            </View>
+            <SkeletonBlock style={styles.listSkeletonPrice} />
+          </View>
+        ))}
+      </SkeletonGroup>
+    );
+  }
+
+  return (
+    <SkeletonGroup style={styles.catalogProductGrid}>
+      {Array.from({ length: 4 }, (_, index) => (
+        <View key={index} style={styles.catalogSkeletonCard}>
+          <SkeletonBlock style={styles.catalogSkeletonImage} />
+          <View style={styles.catalogSkeletonBody}>
+            <SkeletonBlock style={styles.catalogSkeletonTitle} />
+            <View style={styles.catalogSkeletonBadges}>
+              <SkeletonBlock style={styles.catalogSkeletonBadgeWide} />
+              <SkeletonBlock style={styles.catalogSkeletonBadge} />
+            </View>
+            <SkeletonBlock style={styles.catalogSkeletonMeta} />
+            <SkeletonBlock style={styles.catalogSkeletonPrice} />
+          </View>
+        </View>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
+function SalesHistorySkeleton() {
+  return (
+    <SkeletonGroup style={styles.salesSkeletonList}>
+      {Array.from({ length: 3 }, (_, index) => (
+        <View key={index} style={styles.saleSkeletonCard}>
+          <View style={styles.saleSkeletonHeader}>
+            <SkeletonBlock style={styles.saleSkeletonAvatar} />
+            <View style={styles.saleSkeletonMain}>
+              <SkeletonBlock style={styles.saleSkeletonTitle} />
+              <SkeletonBlock style={styles.saleSkeletonMeta} />
+            </View>
+            <SkeletonBlock style={styles.saleSkeletonAmount} />
+          </View>
+          <SkeletonBlock style={styles.saleSkeletonLine} />
+        </View>
+      ))}
+    </SkeletonGroup>
   );
 }
 
@@ -1033,11 +1207,9 @@ function CatalogProductOption({ onPress, product, selected }: { onPress: () => v
             <GlassBadge label={categoryLabels[product.category]} tone={colors.violet} />
             <GlassBadge label={`T: ${product.size}`} tone={colors.rose} />
           </View>
-          {product.subcategory ? (
-            <Text numberOfLines={1} style={styles.catalogSubcategory}>
-              {product.subcategory}
-            </Text>
-          ) : null}
+          <Text numberOfLines={1} style={styles.catalogSubcategory}>
+            {product.subcategory ?? " "}
+          </Text>
           <View style={styles.catalogPriceRow}>
             <Text style={styles.catalogPriceLabel}>Venta</Text>
             <Text style={styles.catalogPriceValue}>{formatMoney(product.salePrice)}</Text>
@@ -1171,17 +1343,18 @@ export function SaleDetail({
   const [returnForm, setReturnForm] = useState(initialReturnForm);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnError, setReturnError] = useState<string | null>(null);
+  const [returnConfirming, setReturnConfirming] = useState(false);
   const [returns, setReturns] = useState<SaleReturn[]>([]);
   const [returnsLoading, setReturnsLoading] = useState(false);
   const [returnSaving, setReturnSaving] = useState(false);
   const [selectedReturnItemIds, setSelectedReturnItemIds] = useState<string[]>([]);
+  const [successMessage, setSuccessMessage] = useState<{ detail: string; title: string } | null>(null);
 
   const selectedReturnTotal = useMemo(
     () => sale.items.filter((item) => selectedReturnItemIds.includes(item.id)).reduce((sum, item) => sum + item.salePrice, 0),
     [sale.items, selectedReturnItemIds],
   );
-  const refundedAmount = useMemo(() => returns.reduce((sum, item) => sum + item.refundAmount, 0), [returns]);
-  const maxRefundAmount = Math.max(0, sale.paidAmount - refundedAmount);
+  const returnRefundAmount = Math.min(selectedReturnTotal, sale.paidAmount);
 
   const loadPayments = useCallback(async () => {
     if (!session) {
@@ -1279,6 +1452,7 @@ export function SaleDetail({
       onSaleUpdated(response.item);
       setPaymentOpen(false);
       setPaymentForm(initialPaymentForm);
+      setSuccessMessage({ detail: formatMoney(amount), title: "Pago registrado" });
     } catch (error) {
       setPaymentError(error instanceof Error ? error.message : "No se pudo registrar el pago");
     } finally {
@@ -1291,15 +1465,10 @@ export function SaleDetail({
       return;
     }
 
-    const defaultIds = returnableItems.map((item) => item.id);
-    const defaultRefund = Math.min(
-      returnableItems.reduce((sum, item) => sum + item.salePrice, 0),
-      maxRefundAmount,
-    );
-
-    setSelectedReturnItemIds(defaultIds);
-    setReturnForm({ ...initialReturnForm, refundAmount: String(defaultRefund) });
+    setSelectedReturnItemIds([]);
+    setReturnForm(initialReturnForm);
     setReturnError(null);
+    setReturnConfirming(false);
     setReturnOpen(true);
   };
 
@@ -1309,6 +1478,7 @@ export function SaleDetail({
     }
 
     setReturnOpen(false);
+    setReturnConfirming(false);
     setReturnError(null);
     setReturnForm(initialReturnForm);
     setSelectedReturnItemIds([]);
@@ -1320,30 +1490,31 @@ export function SaleDetail({
     );
   };
 
+  const validateReturn = (): boolean => {
+    if (selectedReturnItemIds.length === 0) {
+      setReturnError("Selecciona al menos un producto.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const requestReturnConfirmation = () => {
+    if (!validateReturn()) {
+      return;
+    }
+
+    setReturnError(null);
+    setReturnConfirming(true);
+  };
+
   const registerReturn = async () => {
     if (!session) {
       return;
     }
 
-    const refundAmount = Number.parseInt(returnForm.refundAmount || "0", 10);
-
-    if (selectedReturnItemIds.length === 0) {
-      setReturnError("Selecciona al menos un producto.");
-      return;
-    }
-
-    if (!Number.isFinite(refundAmount) || refundAmount < 0) {
-      setReturnError("El reintegro debe ser un numero valido.");
-      return;
-    }
-
-    if (refundAmount > selectedReturnTotal) {
-      setReturnError("El reintegro no puede superar el valor de los productos seleccionados.");
-      return;
-    }
-
-    if (refundAmount > maxRefundAmount) {
-      setReturnError("El reintegro no puede superar lo cobrado disponible.");
+    if (!validateReturn()) {
+      setReturnConfirming(false);
       return;
     }
 
@@ -1352,7 +1523,6 @@ export function SaleDetail({
 
     try {
       const payload: CreateReturnInput = {
-        refundAmount,
         reason: returnForm.reason.trim() || null,
         saleId: sale.id,
         saleItemIds: selectedReturnItemIds,
@@ -1372,8 +1542,13 @@ export function SaleDetail({
       await Promise.all([loadReturns(), loadPayments()]);
       onSaleUpdated(response.item);
       setReturnOpen(false);
+      setReturnConfirming(false);
       setReturnForm(initialReturnForm);
       setSelectedReturnItemIds([]);
+      setSuccessMessage({
+        detail: `${selectedReturnItemIds.length} ${selectedReturnItemIds.length === 1 ? "producto" : "productos"} - ${formatMoney(returnRefundAmount)}`,
+        title: "Devolucion registrada",
+      });
     } catch (error) {
       setReturnError(error instanceof Error ? error.message : "No se pudo registrar la devolucion");
     } finally {
@@ -1382,16 +1557,10 @@ export function SaleDetail({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.detailContent}>
-      <View style={styles.detailHeader}>
-        <Pressable onPress={onBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-          <ChevronRight color={colors.violet} size={17} strokeWidth={2.4} style={styles.backIcon} />
-        </Pressable>
-        <View>
-          <Text style={styles.detailTitle}>Venta #{sale.id.slice(0, 8)}</Text>
-          <Text style={styles.detailDate}>{formatDate(sale.saleDate)}</Text>
-        </View>
-      </View>
+    <ScreenEnter>
+      <View style={styles.root}>
+      <ScrollView contentContainerStyle={styles.detailContent}>
+      <InternalHeader onBack={onBack} subtitle={formatDate(sale.saleDate)} title={`Venta #${sale.id.slice(0, 8)}`} />
 
       <DetailSection title="Comprador">
         <View style={styles.detailStack}>
@@ -1479,16 +1648,67 @@ export function SaleDetail({
           <View style={styles.sheet}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Gestionar devolucion</Text>
+              <Text style={styles.sheetTitle}>{returnConfirming ? "Confirmar devolucion" : "Gestionar devolucion"}</Text>
               <Pressable onPress={closeReturn} style={styles.closeButton}>
                 <X color={colors.violet} size={18} strokeWidth={2.4} />
               </Pressable>
             </View>
 
+            {returnConfirming ? (
+              <ScrollView contentContainerStyle={styles.returnConfirmation}>
+                <View style={styles.returnWarningIcon}>
+                  <RotateCcw color={colors.red} size={22} strokeWidth={2.5} />
+                </View>
+                <Text style={styles.returnConfirmationTitle}>Revisa los productos</Text>
+                <Text style={styles.returnConfirmationText}>Al confirmar, volveran a quedar disponibles en el catalogo.</Text>
+
+                <View style={styles.returnConfirmationItems}>
+                  {sale.items
+                    .filter((item) => selectedReturnItemIds.includes(item.id))
+                    .map((item) => (
+                      <View key={item.id} style={styles.returnConfirmationItem}>
+                        <View style={styles.detailProductInfo}>
+                          <Text numberOfLines={1} style={styles.detailProductName}>{item.productName}</Text>
+                          <Text style={styles.detailMuted}>Talle {item.productSize}</Text>
+                        </View>
+                        <Text style={styles.detailProductPrice}>{formatMoney(item.salePrice)}</Text>
+                      </View>
+                    ))}
+                </View>
+
+                <View style={styles.returnConfirmationTotal}>
+                  <Text style={styles.detailMuted}>Reintegro</Text>
+                  <Text style={styles.returnConfirmationAmount}>
+                    {formatMoney(returnRefundAmount)}
+                  </Text>
+                </View>
+
+                <View style={styles.returnConfirmationActions}>
+                  <Pressable
+                    disabled={returnSaving}
+                    onPress={() => setReturnConfirming(false)}
+                    style={({ pressed }) => [styles.returnCancelButton, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.returnCancelText}>Volver</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={returnSaving}
+                    onPress={registerReturn}
+                    style={({ pressed }) => [styles.returnConfirmButton, pressed && styles.pressed]}
+                  >
+                    {returnSaving ? (
+                      <ActivityIndicator color={colors.white} />
+                    ) : (
+                      <Text style={styles.returnConfirmText}>Confirmar</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </ScrollView>
+            ) : (
             <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
               <View style={styles.paymentSummary}>
                 <AmountLine color={colors.foreground} label="Productos seleccionados" value={selectedReturnTotal} />
-                <AmountLine color={colors.mint} label="Reintegro disponible" value={maxRefundAmount} />
+                <AmountLine color={colors.mint} label="Reintegro automatico" value={returnRefundAmount} />
               </View>
 
               <View style={styles.returnItems}>
@@ -1516,17 +1736,6 @@ export function SaleDetail({
                 })}
               </View>
 
-              <FormField Icon={DollarSign} label="Reintegro">
-                <TextInput
-                  inputMode="numeric"
-                  onChangeText={(value) => setReturnForm((current) => ({ ...current, refundAmount: value.replace(/\D/g, "") }))}
-                  placeholder="0"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
-                  style={styles.formInput}
-                  value={returnForm.refundAmount}
-                />
-              </FormField>
-
               <FormField Icon={ReceiptText} label="Motivo">
                 <TextInput
                   onChangeText={(value) => setReturnForm((current) => ({ ...current, reason: value }))}
@@ -1539,17 +1748,14 @@ export function SaleDetail({
 
               {returnError ? <Text style={styles.formError}>{returnError}</Text> : null}
 
-              <Pressable disabled={returnSaving} onPress={registerReturn} style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
-                {returnSaving ? (
-                  <ActivityIndicator color={colors.white} />
-                ) : (
-                  <>
-                    <RotateCcw color={colors.white} size={16} strokeWidth={2.5} />
-                    <Text style={styles.confirmButtonText}>Guardar devolucion</Text>
-                  </>
-                )}
+              <Pressable onPress={requestReturnConfirmation} style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
+                <>
+                  <RotateCcw color={colors.white} size={16} strokeWidth={2.5} />
+                  <Text style={styles.confirmButtonText}>Revisar devolucion</Text>
+                </>
               </Pressable>
             </ScrollView>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1607,7 +1813,16 @@ export function SaleDetail({
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+
+      <SuccessToast
+        detail={successMessage?.detail}
+        onHidden={() => setSuccessMessage(null)}
+        title={successMessage?.title ?? "Operacion registrada"}
+        visible={successMessage !== null}
+      />
+      </View>
+    </ScreenEnter>
   );
 }
 
@@ -1741,6 +1956,9 @@ const styles = StyleSheet.create({
     paddingBottom: 132,
     paddingHorizontal: 20,
     paddingTop: 16,
+  },
+  contentWithSummary: {
+    paddingBottom: 190,
   },
   header: {
     gap: 16,
@@ -2030,10 +2248,130 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
   },
+  catalogSkeletonCard: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    height: 278,
+    overflow: "hidden",
+    width: "47.9%",
+  },
+  catalogSkeletonImage: {
+    borderRadius: 0,
+    borderWidth: 0,
+    height: 120,
+    width: "100%",
+  },
+  catalogSkeletonBody: {
+    flex: 1,
+    padding: 12,
+  },
+  catalogSkeletonTitle: {
+    height: 14,
+    width: "78%",
+  },
+  catalogSkeletonBadges: {
+    flexDirection: "row",
+    gap: 5,
+    marginTop: 14,
+  },
+  catalogSkeletonBadgeWide: {
+    height: 20,
+    width: 62,
+  },
+  catalogSkeletonBadge: {
+    height: 20,
+    width: 42,
+  },
+  catalogSkeletonMeta: {
+    height: 10,
+    marginTop: 13,
+    width: "52%",
+  },
+  catalogSkeletonPrice: {
+    alignSelf: "flex-end",
+    height: 20,
+    marginTop: "auto",
+    width: 68,
+  },
+  listSkeletonCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 84,
+    padding: 14,
+  },
+  listSkeletonImage: {
+    height: 56,
+    width: 56,
+  },
+  listSkeletonBody: {
+    flex: 1,
+    gap: 9,
+  },
+  listSkeletonTitle: {
+    height: 13,
+    width: "72%",
+  },
+  listSkeletonMeta: {
+    height: 18,
+    width: "56%",
+  },
+  listSkeletonPrice: {
+    height: 18,
+    width: 62,
+  },
+  salesSkeletonList: {
+    gap: 12,
+  },
+  saleSkeletonCard: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16,
+  },
+  saleSkeletonHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 11,
+  },
+  saleSkeletonAvatar: {
+    borderRadius: 999,
+    height: 42,
+    width: 42,
+  },
+  saleSkeletonMain: {
+    flex: 1,
+    gap: 8,
+  },
+  saleSkeletonTitle: {
+    height: 13,
+    width: "66%",
+  },
+  saleSkeletonMeta: {
+    height: 10,
+    width: "42%",
+  },
+  saleSkeletonAmount: {
+    height: 18,
+    width: 68,
+  },
+  saleSkeletonLine: {
+    height: 10,
+    width: "58%",
+  },
   catalogProductPressable: {
     width: "47.9%",
   },
   catalogProductCard: {
+    height: 278,
     overflow: "hidden",
     width: "100%",
   },
@@ -2069,6 +2407,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.82)",
   },
   catalogProductBody: {
+    flex: 1,
     padding: 12,
   },
   catalogProductName: {
@@ -2089,10 +2428,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     marginTop: 8,
+    minHeight: 14,
   },
   catalogPriceRow: {
     alignItems: "flex-end",
-    marginTop: 12,
+    marginTop: "auto",
+    paddingTop: 12,
   },
   catalogPriceLabel: {
     color: colors.faint,
@@ -2164,42 +2505,71 @@ const styles = StyleSheet.create({
   addBubbleActive: {
     backgroundColor: colors.violet,
   },
-  cartFab: {
+  saleSummaryDock: {
     alignItems: "center",
-    backgroundColor: colors.violet,
-    borderColor: "rgba(255,255,255,0.35)",
-    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.88)",
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 24,
     borderWidth: 1,
     bottom: 92,
     flexDirection: "row",
-    gap: 9,
-    minHeight: 52,
-    paddingHorizontal: 18,
+    left: 20,
+    minHeight: 66,
+    paddingHorizontal: 16,
     position: "absolute",
     right: 20,
     shadowColor: colors.violet,
-    shadowOpacity: 0.5,
-    shadowRadius: 26,
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
     shadowOffset: { width: 0, height: 10 },
     elevation: 12,
   },
-  cartFabTotal: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  cartCount: {
+  saleSummaryMetric: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.24)",
-    borderRadius: 999,
-    height: 22,
-    justifyContent: "center",
-    width: 22,
+    minWidth: 56,
   },
-  cartCountText: {
-    color: colors.white,
-    fontSize: 11,
+  saleSummaryLabel: {
+    color: colors.faint,
+    fontSize: 9,
     fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  saleSummaryCount: {
+    color: colors.foreground,
+    fontSize: 19,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  saleSummaryDivider: {
+    backgroundColor: "rgba(155,93,229,0.14)",
+    height: 34,
+    marginHorizontal: 14,
+    width: 1,
+  },
+  saleSummaryTotalWrap: {
+    flex: 1,
+  },
+  saleSummaryTotal: {
+    color: colors.foreground,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  saleSummaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 17,
+    height: 44,
+    justifyContent: "center",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    width: 48,
+  },
+  saleSummaryButtonDisabled: {
+    backgroundColor: "rgba(155,93,229,0.28)",
+    shadowOpacity: 0,
   },
   errorCard: {
     borderColor: "rgba(224,82,113,0.24)",
@@ -2520,13 +2890,75 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
+  creationOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(20,10,35,0.28)",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    paddingHorizontal: 32,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 40,
+  },
+  creationToast: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderColor: "rgba(255,255,255,0.86)",
+    borderRadius: 30,
+    borderWidth: 1,
+    paddingHorizontal: 26,
+    paddingVertical: 28,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.28,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 16 },
+    width: "100%",
+  },
+  creationIconWrap: {
+    alignItems: "center",
+    backgroundColor: colors.mint,
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 66,
+    justifyContent: "center",
+    marginBottom: 14,
+    shadowColor: colors.mint,
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    width: 66,
+  },
+  creationTitle: {
+    color: colors.foreground,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  creationAmount: {
+    color: colors.foreground,
+    fontSize: 28,
+    fontWeight: "900",
+    marginTop: 8,
+  },
+  creationStatus: {
+    borderRadius: 999,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  creationStatusText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
   pressed: {
     opacity: 0.8,
     transform: [{ scale: 0.98 }],
   },
   detailContent: {
     gap: 16,
-    paddingBottom: 112,
+    paddingBottom: 32,
     paddingHorizontal: 20,
     paddingTop: 16,
   },
@@ -2680,6 +3112,92 @@ const styles = StyleSheet.create({
   },
   returnItems: {
     gap: 8,
+  },
+  returnConfirmation: {
+    alignItems: "center",
+    gap: 13,
+    paddingBottom: 28,
+  },
+  returnWarningIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(224,82,113,0.12)",
+    borderRadius: 999,
+    height: 52,
+    justifyContent: "center",
+    width: 52,
+  },
+  returnConfirmationTitle: {
+    color: colors.foreground,
+    fontSize: 19,
+    fontWeight: "900",
+  },
+  returnConfirmationText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    maxWidth: 300,
+    textAlign: "center",
+  },
+  returnConfirmationItems: {
+    gap: 8,
+    width: "100%",
+  },
+  returnConfirmationItem: {
+    alignItems: "center",
+    backgroundColor: "rgba(224,82,113,0.06)",
+    borderColor: "rgba(224,82,113,0.12)",
+    borderRadius: 15,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 54,
+    padding: 12,
+  },
+  returnConfirmationTotal: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.07)",
+    borderRadius: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 14,
+    width: "100%",
+  },
+  returnConfirmationAmount: {
+    color: colors.red,
+    fontSize: 19,
+    fontWeight: "900",
+  },
+  returnConfirmationActions: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  returnCancelButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.09)",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 50,
+  },
+  returnCancelText: {
+    color: colors.violet,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  returnConfirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.red,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 50,
+  },
+  returnConfirmText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
   },
   returnItemOption: {
     alignItems: "center",

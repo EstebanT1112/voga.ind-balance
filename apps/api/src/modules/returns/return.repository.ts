@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
-import type { RegisterReturnData, ReturnItemRow, ReturnListFilters, ReturnRow, ReturnWithItemsRow } from "./return.types.js";
+import type { RegisterReturnCommand, ReturnItemRow, ReturnListFilters, ReturnRow, ReturnWithItemsRow } from "./return.types.js";
 import { withItems } from "./return.mapper.js";
 
 const returnSelect = "id, sale_id, registered_by, refund_amount, reason, returned_at, created_at";
@@ -96,7 +96,7 @@ export const returnRepository = {
     return withItems(returnRow, items);
   },
 
-  async register(data: RegisterReturnData, registeredBy: string): Promise<string> {
+  async register(data: RegisterReturnCommand, registeredBy: string): Promise<string> {
     const { data: returnId, error } = await supabaseAdmin.rpc("register_return", {
       p_sale_id: data.saleId,
       p_registered_by: registeredBy,

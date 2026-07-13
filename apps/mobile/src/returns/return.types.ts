@@ -27,6 +27,5 @@ export interface ReturnsResponse {
 export interface CreateReturnInput {
   saleId: string;
   saleItemIds: string[];
-  refundAmount: number;
   reason?: string | null;
 }
