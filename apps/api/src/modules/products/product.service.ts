@@ -23,7 +23,7 @@ function buildProductExpenseDescription(product: { name: string; size: string })
 
 export const productService = {
   async list(filters: ProductListFilters, profile: ApiProfile): Promise<ApiProduct[]> {
-    const products = await productRepository.list(filters);
+    const products = await productRepository.list(filters, profile.role === "seller" ? profile.id : undefined);
     return products.map((product) => mapProductRow(product, profile.role));
   },
 
@@ -32,6 +32,14 @@ export const productService = {
 
     if (!product) {
       throw new HttpError(404, "not_found", "Product not found");
+    }
+
+    if (profile.role === "seller" && product.status === "sold") {
+      const soldBySeller = await productRepository.isSoldBySeller(product.id, profile.id);
+
+      if (!soldBySeller) {
+        throw new HttpError(404, "not_found", "Product not found");
+      }
     }
 
     return mapProductRow(product, profile.role);

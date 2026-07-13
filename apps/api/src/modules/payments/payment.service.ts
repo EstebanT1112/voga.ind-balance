@@ -110,9 +110,19 @@ export const paymentService = {
 
   async register(data: RegisterPaymentData, profile: ApiProfile): Promise<ApiPayment> {
     try {
+      const sale = await saleRepository.findById(data.saleId);
+
+      if (!sale || (profile.role === "seller" && sale.seller_id !== profile.id)) {
+        throw new HttpError(404, "not_found", "Sale not found");
+      }
+
       const paymentId = await paymentRepository.register(data, profile.id);
       return await this.getById(paymentId, profile);
     } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
       throw new HttpError(400, "bad_request", getSupabaseErrorMessage(error));
     }
   },
