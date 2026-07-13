@@ -240,11 +240,15 @@ function VerticalBar({ color, label, percent, value }: { color: string; label: s
 function HorizontalBar({ color, label, percent, value }: { color: string; label: string; percent: number; value: string }) {
   return (
     <View style={styles.sizeRow}>
-      <Text style={styles.sizeLabel}>{label}</Text>
-      <View style={styles.sizeTrack}>
-        <View style={[styles.sizeFill, { backgroundColor: color, width: `${Math.max(8, percent * 100)}%` }]} />
+      <View style={[styles.sizeBadge, { backgroundColor: `${color}18`, borderColor: `${color}35` }]}>
+        <Text style={[styles.sizeLabel, { color }]}>{label}</Text>
       </View>
-      <Text style={styles.sizeValue}>{value}</Text>
+      <View style={styles.sizeBody}>
+        <View style={styles.sizeTrack}>
+          <View style={[styles.sizeFill, { backgroundColor: color, width: `${Math.max(8, percent * 100)}%` }]} />
+        </View>
+      </View>
+      <Text style={styles.sizeValue}>{value} u.</Text>
     </View>
   );
 }
@@ -341,19 +345,27 @@ const styles = StyleSheet.create({
   sizeRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
+  },
+  sizeBadge: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 36,
+    justifyContent: "center",
+    width: 48,
   },
   sizeLabel: {
-    color: colors.foreground,
     fontSize: 12,
     fontWeight: "900",
-    width: 42,
+  },
+  sizeBody: {
+    flex: 1,
   },
   sizeTrack: {
     backgroundColor: "rgba(155,93,229,0.08)",
     borderRadius: 999,
-    flex: 1,
-    height: 20,
+    height: 9,
     overflow: "hidden",
   },
   sizeFill: {
@@ -365,7 +377,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     textAlign: "right",
-    width: 26,
+    width: 42,
   },
   chips: {
     flexDirection: "row",

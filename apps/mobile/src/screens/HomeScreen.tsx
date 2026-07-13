@@ -16,9 +16,11 @@ import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText,
 import { useAuth } from "../auth/AuthProvider";
 import { IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
+import type { Payment, PaymentsResponse } from "../payments/payment.types";
 import type { ApiProfile, ReportSummary, UsersResponse } from "../reports/report.types";
 import type { Sale, SalesResponse } from "../sales/sale.types";
 import { colors, formatMoney } from "../theme/liquid";
+import { SaleDetail } from "./SalesScreen";
 
 const sellerColors = [colors.violet, colors.rose, colors.coral, colors.mint, colors.lilac, colors.red];
 const paymentLabels: Record<Sale["paymentStatus"], string> = {
@@ -60,6 +62,10 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(value));
 }
 
+function formatFullDate(value: string): string {
+  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
+}
+
 function monthKey(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -80,12 +86,16 @@ type ComparisonSaleBar = {
   label: string;
 };
 
-export function HomeScreen() {
+type LedgerView = "collected" | "pending";
+
+export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (hidden: boolean) => void } = {}) {
   const { profile, session, signOut } = useAuth();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [monthSales, setMonthSales] = useState<Sale[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [report, setReport] = useState<ReportSummary | null>(null);
+  const [saleLoading, setSaleLoading] = useState(false);
   const [savingSeller, setSavingSeller] = useState(false);
   const [sellerError, setSellerError] = useState<string | null>(null);
   const [creatingSeller, setCreatingSeller] = useState(false);
@@ -93,6 +103,8 @@ export function HomeScreen() {
   const [sellerManagerOpen, setSellerManagerOpen] = useState(false);
   const [sellers, setSellers] = useState<ApiProfile[]>([]);
   const [employeeDetailId, setEmployeeDetailId] = useState<string | null>(null);
+  const [ledgerView, setLedgerView] = useState<LedgerView | null>(null);
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<ApiProfile | null>(null);
   const month = currentMonthRange();
 
@@ -109,15 +121,17 @@ export function HomeScreen() {
         from: month.from,
         to: month.to,
       });
-      const [reportResponse, sellersResponse, salesResponse] = await Promise.all([
+      const [reportResponse, sellersResponse, salesResponse, paymentsResponse] = await Promise.all([
         apiRequest<ReportSummary>(`/reports?${query.toString()}`, { method: "GET", session }),
         apiRequest<UsersResponse>("/users?role=seller", { method: "GET", session }),
         apiRequest<SalesResponse>(`/sales?${query.toString()}`, { method: "GET", session }),
+        apiRequest<PaymentsResponse>(`/payments?${query.toString()}`, { method: "GET", session }),
       ]);
 
       setReport(reportResponse);
       setSellers(sellersResponse.items);
       setMonthSales(salesResponse.items);
+      setPayments(paymentsResponse.items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "No se pudo cargar el resumen");
     } finally {
@@ -128,6 +142,14 @@ export function HomeScreen() {
   useEffect(() => {
     loadHome();
   }, [loadHome]);
+
+  useEffect(() => {
+    onChromeHiddenChange?.(selectedSale !== null || employeeDetailId !== null || ledgerView !== null);
+
+    return () => {
+      onChromeHiddenChange?.(false);
+    };
+  }, [employeeDetailId, ledgerView, onChromeHiddenChange, selectedSale]);
 
   const employeeRows = useMemo(
     () =>
@@ -176,6 +198,29 @@ export function HomeScreen() {
       })),
     ];
   }, [employeeRows, monthSales, profile]);
+
+  const pendingSales = useMemo(() => monthSales.filter((sale) => sale.pendingAmount > 0), [monthSales]);
+
+  const openSaleById = useCallback(
+    async (saleId: string) => {
+      if (!session) {
+        return;
+      }
+
+      setSaleLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const response = await apiRequest<{ item: Sale }>(`/sales/${saleId}`, { method: "GET", session });
+        setSelectedSale(response.item);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "No se pudo abrir la venta");
+      } finally {
+        setSaleLoading(false);
+      }
+    },
+    [session],
+  );
 
   const openSeller = (seller: ApiProfile) => {
     setSellerManagerOpen(true);
@@ -307,6 +352,37 @@ export function HomeScreen() {
   const totals = report?.totals;
   const employeeDetailRow = employeeRows.find((item) => item.id === employeeDetailId);
 
+  if (selectedSale) {
+    return (
+      <SaleDetail
+        onBack={() => setSelectedSale(null)}
+        onSaleUpdated={(sale) => {
+          setSelectedSale(sale);
+          setMonthSales((current) => current.map((item) => (item.id === sale.id ? sale : item)));
+          loadHome();
+        }}
+        sale={selectedSale}
+        seller={[profile, ...sellers].find((seller) => seller?.id === selectedSale.sellerId)}
+        session={session}
+      />
+    );
+  }
+
+  if (ledgerView) {
+    return (
+      <HomeLedgerScreen
+        loading={saleLoading}
+        monthLabel={month.label}
+        onBack={() => setLedgerView(null)}
+        onSalePress={openSaleById}
+        payments={payments}
+        sales={monthSales}
+        sellers={[profile, ...sellers].filter((seller): seller is ApiProfile => Boolean(seller))}
+        type={ledgerView}
+      />
+    );
+  }
+
   if (employeeDetailRow) {
     return (
       <EmployeeDetailScreen
@@ -347,8 +423,20 @@ export function HomeScreen() {
         <Text style={styles.heroValue}>{formatMoney(totals?.salesAmount ?? 0)}</Text>
 
         <View style={styles.heroGrid}>
-          <MetricTile Icon={CheckCircle2} label="Cobrado" tone={colors.mint} value={formatMoney(totals?.netCollectedAmount ?? 0)} />
-          <MetricTile Icon={AlertCircle} label="Por cobrar" tone={colors.red} value={formatMoney(totals?.pendingAmount ?? 0)} />
+          <MetricTile
+            Icon={CheckCircle2}
+            label="Cobrado"
+            onPress={() => setLedgerView("collected")}
+            tone={colors.mint}
+            value={formatMoney(totals?.netCollectedAmount ?? 0)}
+          />
+          <MetricTile
+            Icon={AlertCircle}
+            label="Por cobrar"
+            onPress={() => setLedgerView("pending")}
+            tone={colors.red}
+            value={formatMoney(totals?.pendingAmount ?? 0)}
+          />
           <MetricTile Icon={ReceiptText} label="Gastado" tone={colors.coral} value={formatMoney(totals?.expensesAmount ?? 0)} />
         </View>
       </LiquidCard>
@@ -553,15 +641,17 @@ export function HomeScreen() {
 function MetricTile({
   Icon,
   label,
+  onPress,
   tone,
   value,
 }: {
   Icon: typeof TrendingUp;
   label: string;
+  onPress?: () => void;
   tone: string;
   value: string;
 }) {
-  return (
+  const content = (
     <View style={styles.metricTile}>
       <View style={styles.metricTileHeader}>
         <Icon color={tone} size={13} strokeWidth={2.4} />
@@ -569,6 +659,16 @@ function MetricTile({
       </View>
       <Text style={styles.metricTileValue}>{value}</Text>
     </View>
+  );
+
+  if (!onPress) {
+    return content;
+  }
+
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>
+      {content}
+    </Pressable>
   );
 }
 
@@ -610,6 +710,204 @@ function EmployeeCard({
       <ChevronRight color="rgba(155,93,229,0.4)" size={15} strokeWidth={2.4} />
       </LiquidCard>
     </Pressable>
+  );
+}
+
+function HomeLedgerScreen({
+  loading,
+  monthLabel,
+  onBack,
+  onSalePress,
+  payments,
+  sales,
+  sellers,
+  type,
+}: {
+  loading: boolean;
+  monthLabel: string;
+  onBack: () => void;
+  onSalePress: (saleId: string) => void;
+  payments: Payment[];
+  sales: Sale[];
+  sellers: ApiProfile[];
+  type: LedgerView;
+}) {
+  const pendingSales = useMemo(() => sales.filter((sale) => sale.pendingAmount > 0), [sales]);
+  const salesById = useMemo(() => new Map(sales.map((sale) => [sale.id, sale])), [sales]);
+  const total = type === "collected" ? payments.reduce((sum, payment) => sum + payment.amount, 0) : pendingSales.reduce((sum, sale) => sum + sale.pendingAmount, 0);
+  const title = type === "collected" ? "Pagos cobrados" : "Por cobrar";
+  const subtitle = type === "collected" ? "Historial de pagos del mes" : "Ventas con saldo pendiente";
+
+  return (
+    <ScrollView contentContainerStyle={styles.detailContent}>
+      <View style={styles.detailHeader}>
+        <Pressable onPress={onBack} style={({ pressed }) => [styles.detailBackButton, pressed && styles.pressed]}>
+          <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.detailBackIcon} />
+        </Pressable>
+        <View style={styles.detailHeaderText}>
+          <Text style={styles.detailTitle}>{title}</Text>
+          <Text style={styles.detailSubtitle}>{monthLabel}</Text>
+        </View>
+      </View>
+
+      <LiquidCard style={styles.ledgerSummaryCard}>
+        <Text style={styles.detailStatusLabel}>{subtitle}</Text>
+        <Text style={styles.ledgerSummaryValue}>{formatMoney(total)}</Text>
+      </LiquidCard>
+
+      {loading ? <ActivityIndicator color={colors.violet} /> : null}
+
+      <View>
+        <SectionLabel>{type === "collected" ? "Pagos" : "Montos pendientes"}</SectionLabel>
+        <View style={styles.detailSalesList}>
+          {type === "collected"
+            ? payments.map((payment) => {
+                const sale = salesById.get(payment.saleId);
+                const seller = sale ? sellers.find((item) => item.id === sale.sellerId) : undefined;
+                const registeredBy = sellers.find((item) => item.id === payment.registeredBy);
+
+                return (
+                  <LedgerPaymentRow
+                    key={payment.id}
+                    onPress={() => onSalePress(payment.saleId)}
+                    payment={payment}
+                    registeredBy={registeredBy}
+                    sale={sale}
+                    seller={seller}
+                  />
+                );
+              })
+            : pendingSales.map((sale) => {
+                const createdBy = sellers.find((item) => item.id === sale.createdBy);
+
+                return <LedgerPendingRow key={sale.id} createdBy={createdBy} onPress={() => onSalePress(sale.id)} sale={sale} />;
+              })}
+
+          {!loading && (type === "collected" ? payments.length === 0 : pendingSales.length === 0) ? (
+            <LiquidCard style={styles.emptyCard}>
+              <Text style={styles.emptyText}>{type === "collected" ? "No hay pagos registrados este mes." : "No hay montos pendientes este mes."}</Text>
+            </LiquidCard>
+          ) : null}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function LedgerPaymentRow({
+  onPress,
+  payment,
+  registeredBy,
+  sale,
+  seller,
+}: {
+  onPress: () => void;
+  payment: Payment;
+  registeredBy?: ApiProfile;
+  sale?: Sale;
+  seller?: ApiProfile;
+}) {
+  const personColor = registeredBy?.color ?? colors.violet;
+
+  return (
+    <LiquidCard onPress={onPress} style={[styles.ledgerRow, { borderColor: personColor }]}>
+      <View style={styles.detailSaleBody}>
+        <View style={styles.detailSaleHeader}>
+          <Text numberOfLines={1} style={styles.detailSaleBuyer}>
+            {sale?.buyerFullName ?? `Venta #${payment.saleId.slice(0, 8)}`}
+          </Text>
+          <Text style={[styles.detailSaleTotal, { color: colors.mint }]}>{formatMoney(payment.amount)}</Text>
+        </View>
+        <Text style={styles.detailSaleProducts}>{sale?.items.map((item) => item.productName).join(", ") ?? "Tocar para ver la venta"}</Text>
+        <View style={styles.detailSaleFooter}>
+          <Text style={styles.detailSaleDate}>{formatFullDate(payment.paidAt)}</Text>
+          <Text style={styles.ledgerSellerText}>Registrado por {registeredBy?.fullName ?? seller?.fullName ?? "Vendedora"}</Text>
+        </View>
+      </View>
+      <ChevronRight color="rgba(155,93,229,0.35)" size={15} strokeWidth={2.4} />
+    </LiquidCard>
+  );
+}
+
+function LedgerPendingRow({ createdBy, onPress, sale }: { createdBy?: ApiProfile; onPress: () => void; sale: Sale }) {
+  const creatorColor = createdBy?.color ?? colors.violet;
+
+  return (
+    <LiquidCard onPress={onPress} style={[styles.ledgerRow, { borderColor: creatorColor }]}>
+      <View style={styles.detailSaleBody}>
+        <View style={styles.detailSaleHeader}>
+          <Text numberOfLines={1} style={styles.detailSaleBuyer}>
+            {sale.buyerFullName}
+          </Text>
+          <Text style={[styles.detailSaleTotal, { color: colors.red }]}>{formatMoney(sale.pendingAmount)}</Text>
+        </View>
+        <Text numberOfLines={1} style={styles.detailSaleProducts}>
+          {sale.items.map((item) => item.productName).join(", ")}
+        </Text>
+        <View style={styles.detailSaleFooter}>
+          <Text style={styles.detailSaleDate}>Venta: {formatFullDate(sale.saleDate)}</Text>
+          <Text style={styles.ledgerSellerText}>Creada por {createdBy?.fullName ?? "Usuario"}</Text>
+        </View>
+      </View>
+      <ChevronRight color="rgba(155,93,229,0.35)" size={15} strokeWidth={2.4} />
+    </LiquidCard>
+  );
+}
+
+function HomeSaleDetailScreen({ onBack, sale, seller }: { onBack: () => void; sale: Sale; seller?: ApiProfile }) {
+  const sellerColor = seller?.color ?? colors.violet;
+
+  return (
+    <ScrollView contentContainerStyle={styles.detailContent}>
+      <View style={styles.detailHeader}>
+        <Pressable onPress={onBack} style={({ pressed }) => [styles.detailBackButton, pressed && styles.pressed]}>
+          <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.detailBackIcon} />
+        </Pressable>
+        <View style={styles.detailHeaderText}>
+          <Text style={styles.detailTitle}>Venta #{sale.id.slice(0, 8)}</Text>
+          <Text style={styles.detailSubtitle}>{formatFullDate(sale.saleDate)}</Text>
+        </View>
+      </View>
+
+      <LiquidCard style={styles.detailStatusCard}>
+        <View style={[styles.detailStatusStripe, { backgroundColor: sellerColor }]} />
+        <View style={styles.detailStatusBody}>
+          <Text style={styles.detailStatusLabel}>Compradora</Text>
+          <Text style={styles.detailStatusValue}>{sale.buyerFullName}</Text>
+          <Text style={styles.detailStatusText}>{sale.buyerPhone}</Text>
+        </View>
+      </LiquidCard>
+
+      <LiquidCard style={styles.saleAmountsCard}>
+        <AmountLine color={colors.foreground} label="Total" value={sale.totalAmount} />
+        <AmountLine color={colors.mint} label="Cobrado" value={sale.paidAmount} />
+        <AmountLine color={colors.red} label="Pendiente" value={sale.pendingAmount} />
+      </LiquidCard>
+
+      <View>
+        <SectionLabel>Productos</SectionLabel>
+        <View style={styles.detailSalesList}>
+          {sale.items.map((item) => (
+            <LiquidCard key={item.id} style={styles.saleProductRow}>
+              <View>
+                <Text style={styles.detailSaleBuyer}>{item.productName}</Text>
+                <Text style={styles.detailSaleProducts}>Talle {item.productSize}</Text>
+              </View>
+              <Text style={styles.detailSaleTotal}>{formatMoney(item.salePrice)}</Text>
+            </LiquidCard>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function AmountLine({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <View style={styles.amountLine}>
+      <Text style={styles.amountLineLabel}>{label}</Text>
+      <Text style={[styles.amountLineValue, { color }]}>{formatMoney(value)}</Text>
+    </View>
   );
 }
 
@@ -1245,6 +1543,28 @@ const styles = StyleSheet.create({
   detailSalesList: {
     gap: 12,
   },
+  ledgerSummaryCard: {
+    padding: 18,
+  },
+  ledgerSummaryValue: {
+    color: colors.foreground,
+    fontSize: 30,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+  ledgerRow: {
+    alignItems: "center",
+    borderWidth: 1.5,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  ledgerSellerText: {
+    color: "rgba(90,60,120,0.52)",
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: "800",
+  },
   detailSaleCard: {
     flexDirection: "row",
     gap: 12,
@@ -1303,6 +1623,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
+  },
+  saleAmountsCard: {
+    gap: 10,
+    padding: 16,
+  },
+  amountLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  amountLineLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  amountLineValue: {
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  saleProductRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 14,
   },
   monthlyChartCard: {
     padding: 16,

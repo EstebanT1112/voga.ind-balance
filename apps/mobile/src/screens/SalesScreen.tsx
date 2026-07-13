@@ -160,7 +160,7 @@ function getDaysFromToday(value: string): number {
   return Math.max(0, Math.floor(diff / 86_400_000));
 }
 
-export function SalesScreen() {
+export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (hidden: boolean) => void } = {}) {
   const { session } = useAuth();
   const [availableProducts, setAvailableProducts] = useState<Product[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -170,7 +170,7 @@ export function SalesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
-  const [productSelectionView, setProductSelectionView] = useState<ProductSelectionView>("list");
+  const [productSelectionView, setProductSelectionView] = useState<ProductSelectionView>("catalog");
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesTab, setSalesTab] = useState<SalesTab>("new");
   const [saving, setSaving] = useState(false);
@@ -247,6 +247,14 @@ export function SalesScreen() {
     loadAvailableProducts();
     loadSellers();
   }, [loadAvailableProducts, loadSales, loadSellers]);
+
+  useEffect(() => {
+    onChromeHiddenChange?.(selectedSale !== null);
+
+    return () => {
+      onChromeHiddenChange?.(false);
+    };
+  }, [onChromeHiddenChange, selectedSale]);
 
   const selectedProducts = useMemo(
     () => availableProducts.filter((product) => selectedProductIds.includes(product.id)),
@@ -642,8 +650,8 @@ function NewSaleContent({
 
       <View style={styles.viewToggle}>
         {[
-          { label: "Lista", value: "list" as const },
           { label: "Catalogo", value: "catalog" as const },
+          { label: "Lista", value: "list" as const },
         ].map((item) => {
           const active = item.value === productSelectionView;
 
@@ -1111,8 +1119,7 @@ function SaleCard({ onPress, sale, seller }: { onPress: () => void; sale: Sale; 
   const sellerColor = seller?.color ?? colors.violet;
 
   return (
-    <LiquidCard onPress={onPress} style={styles.saleCard}>
-      <View style={[styles.saleStripe, { backgroundColor: sellerColor }]} />
+    <LiquidCard onPress={onPress} style={[styles.saleCard, { borderColor: sellerColor }]}>
       <View style={styles.saleBody}>
         <View style={styles.saleHeader}>
           <Text numberOfLines={1} style={styles.buyerName}>
@@ -1138,7 +1145,7 @@ function SaleCard({ onPress, sale, seller }: { onPress: () => void; sale: Sale; 
   );
 }
 
-function SaleDetail({
+export function SaleDetail({
   onBack,
   onSaleUpdated,
   sale,
@@ -2212,15 +2219,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   saleCard: {
-    flexDirection: "row",
+    borderWidth: 1.5,
     padding: 16,
-  },
-  saleStripe: {
-    alignSelf: "stretch",
-    backgroundColor: colors.violet,
-    borderRadius: 999,
-    marginRight: 12,
-    width: 4,
   },
   saleBody: {
     flex: 1,

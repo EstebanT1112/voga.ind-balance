@@ -21,6 +21,7 @@ const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
 ];
 
 export function AppShell() {
+  const [chromeHidden, setChromeHidden] = useState(false);
   const [tab, setTab] = useState<Tab>("home");
 
   return (
@@ -30,11 +31,11 @@ export function AppShell() {
 
       <View style={styles.content}>
         {tab === "home" ? (
-          <HomeScreen />
+          <HomeScreen onChromeHiddenChange={setChromeHidden} />
         ) : tab === "products" ? (
           <ProductsScreen />
         ) : tab === "sales" ? (
-          <SalesScreen />
+          <SalesScreen onChromeHiddenChange={setChromeHidden} />
         ) : tab === "expenses" ? (
           <ExpensesScreen />
         ) : tab === "analytics" ? (
@@ -44,7 +45,7 @@ export function AppShell() {
         )}
       </View>
 
-      <View style={styles.navWrap}>
+      {chromeHidden ? null : <View style={styles.navWrap}>
         <View style={styles.nav}>
           {tabs.map((item) => {
             const isActive = item.id === tab;
@@ -52,7 +53,10 @@ export function AppShell() {
             return (
               <Pressable
                 key={item.id}
-                onPress={() => setTab(item.id)}
+                onPress={() => {
+                  setChromeHidden(false);
+                  setTab(item.id);
+                }}
                 style={({ pressed }) => [styles.navItem, isActive && styles.navItemActive, pressed && styles.navItemPressed]}
               >
                 <item.Icon
@@ -67,7 +71,7 @@ export function AppShell() {
             );
           })}
         </View>
-      </View>
+      </View>}
 
       <StatusBar style="dark" />
     </View>
