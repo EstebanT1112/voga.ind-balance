@@ -54,7 +54,9 @@ export interface SellerDashboard {
   totals: {
     collectedAmount: number;
     commissionAmount: number;
+    overdueCount: number;
     pendingAmount: number;
+    returnWindowCount: number;
     saleCount: number;
     soldAmount: number;
   };

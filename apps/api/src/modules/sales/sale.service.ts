@@ -76,7 +76,9 @@ export const saleService = {
       totals: {
         collectedAmount,
         commissionAmount: Math.round(collectedAmount * 0.15),
+        overdueCount: data.overdueCount,
         pendingAmount: currentSales.reduce((total, sale) => total + sale.pending_amount, 0),
+        returnWindowCount: data.returnWindowCount,
         saleCount: currentSales.filter((sale) => sale.total_amount > 0).length,
         soldAmount: currentSales.reduce((total, sale) => total + sale.total_amount, 0),
       },

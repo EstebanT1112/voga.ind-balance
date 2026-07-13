@@ -16,6 +16,20 @@ import { withItems } from "./sale.mapper.js";
 const saleSelect =
   "id, seller_id, buyer_full_name, buyer_phone, sale_date, due_date, return_deadline, total_amount, total_purchase_cost, paid_amount, pending_amount, payment_status, return_status, admin_status, created_by, created_at, updated_at";
 
+function getArgentinaDate(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+  return `${year}-${month}-${day}`;
+}
+
 const saleItemSelect =
   "id, sale_id, product_id, product_name, product_size, product_category, product_subcategory, purchase_price, sale_price, status, returned_at, created_at";
 
@@ -52,6 +66,7 @@ function attachItems(sales: SaleRow[], items: SaleItemRow[]): SaleWithItemsRow[]
 
 export const saleRepository = {
   async getSellerDashboardData(sellerId: string, filters: SellerDashboardFilters): Promise<SellerDashboardData> {
+    const today = getArgentinaDate();
     const salesQuery = supabaseAdmin
       .from("sales")
       .select("sale_date, total_amount, pending_amount")
@@ -73,20 +88,43 @@ export const saleRepository = {
       .eq("sales.admin_status", "active")
       .gte("returned_at", filters.from)
       .lte("returned_at", filters.to);
+    const overdueSalesQuery = supabaseAdmin
+      .from("sales")
+      .select("id", { count: "exact", head: true })
+      .eq("seller_id", sellerId)
+      .eq("admin_status", "active")
+      .lt("due_date", today)
+      .gt("pending_amount", 0);
+    const returnWindowSalesQuery = supabaseAdmin
+      .from("sales")
+      .select("id", { count: "exact", head: true })
+      .eq("seller_id", sellerId)
+      .eq("admin_status", "active")
+      .gte("return_deadline", today)
+      .gt("total_amount", 0);
 
-    const [salesResult, paymentsResult, returnsResult] = await Promise.all([
+    const [salesResult, paymentsResult, returnsResult, overdueSalesResult, returnWindowSalesResult] = await Promise.all([
       salesQuery.returns<SellerDashboardSaleRow[]>(),
       paymentsQuery.returns<SellerDashboardMovementRow[]>(),
       returnsQuery.returns<SellerDashboardReturnRow[]>(),
+      overdueSalesQuery,
+      returnWindowSalesQuery,
     ]);
-    const error = salesResult.error ?? paymentsResult.error ?? returnsResult.error;
+    const error =
+      salesResult.error ??
+      paymentsResult.error ??
+      returnsResult.error ??
+      overdueSalesResult.error ??
+      returnWindowSalesResult.error;
 
     if (error) {
       throw error;
     }
 
     return {
+      overdueCount: overdueSalesResult.count ?? 0,
       payments: paymentsResult.data ?? [],
+      returnWindowCount: returnWindowSalesResult.count ?? 0,
       returns: returnsResult.data ?? [],
       sales: salesResult.data ?? [],
     };
