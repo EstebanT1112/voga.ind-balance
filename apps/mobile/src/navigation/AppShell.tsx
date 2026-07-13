@@ -3,6 +3,7 @@ import { BarChart3, Home, Package, ReceiptText, ShoppingBag } from "lucide-react
 import type { LucideIcon } from "lucide-react-native";
 import { Animated, Easing, PanResponder, Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useAuth } from "../auth/AuthProvider";
 import { HomeScreen } from "../screens/HomeScreen";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { ExpensesScreen } from "../screens/ExpensesScreen";
@@ -11,8 +12,9 @@ import { SalesScreen } from "../screens/SalesScreen";
 import { colors } from "../theme/liquid";
 
 type Tab = "home" | "products" | "sales" | "expenses" | "analytics";
+type TabItem = { id: Tab; label: string; Icon: LucideIcon };
 
-const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
+const ownerTabs: TabItem[] = [
   { id: "home", label: "Home", Icon: Home },
   { id: "products", label: "Catálogo", Icon: Package },
   { id: "sales", label: "Ventas", Icon: ShoppingBag },
@@ -20,14 +22,30 @@ const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
   { id: "analytics", label: "Analíticas", Icon: BarChart3 },
 ];
 
+const sellerTabs: TabItem[] = ownerTabs.filter((item) =>
+  item.id === "home" || item.id === "products" || item.id === "sales",
+);
+
 export function AppShell() {
+  const { profile } = useAuth();
   const [chromeHidden, setChromeHidden] = useState(false);
   const [navWidth, setNavWidth] = useState(0);
   const [tab, setTab] = useState<Tab>("home");
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const contentTranslateX = useRef(new Animated.Value(0)).current;
   const indicatorPosition = useRef(new Animated.Value(0)).current;
-  const tabIndex = tabs.findIndex((item) => item.id === tab);
+  const tabs = profile?.role === "owner" ? ownerTabs : sellerTabs;
+  const tabIndex = Math.max(0, tabs.findIndex((item) => item.id === tab));
+
+  useEffect(() => {
+    if (tabs.some((item) => item.id === tab)) {
+      return;
+    }
+
+    setChromeHidden(false);
+    setTab("home");
+    indicatorPosition.setValue(0);
+  }, [indicatorPosition, tab, tabs]);
 
   useEffect(() => {
     Animated.parallel([
@@ -151,7 +169,7 @@ export function AppShell() {
         onPanResponderTerminate: resetSwipe,
         onPanResponderTerminationRequest: () => false,
       }),
-    [chromeHidden, completeSwipe, contentOpacity, contentTranslateX, resetSwipe, tabIndex],
+    [chromeHidden, completeSwipe, contentOpacity, contentTranslateX, resetSwipe, tabIndex, tabs],
   );
 
   const navItemWidth = navWidth > 0 ? (navWidth - 14) / tabs.length : 0;
@@ -168,9 +186,9 @@ export function AppShell() {
           <ProductsScreen />
         ) : tab === "sales" ? (
           <SalesScreen onChromeHiddenChange={setChromeHidden} />
-        ) : tab === "expenses" ? (
+        ) : tab === "expenses" && profile?.role === "owner" ? (
           <ExpensesScreen />
-        ) : tab === "analytics" ? (
+        ) : tab === "analytics" && profile?.role === "owner" ? (
           <AnalyticsScreen />
         ) : (
           null
