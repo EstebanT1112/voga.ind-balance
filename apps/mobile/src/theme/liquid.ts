@@ -1,8 +1,8 @@
 export const colors = {
-  background: "#f8f4f7",
-  foreground: "#1a1523",
-  muted: "rgba(90,60,120,0.58)",
-  faint: "rgba(90,60,120,0.42)",
+  background: "#050505",
+  foreground: "#ffffff",
+  muted: "rgba(255,255,255,0.62)",
+  faint: "rgba(255,255,255,0.44)",
   violet: "#9b5de5",
   lilac: "#c084fc",
   rose: "#f472b6",
@@ -13,14 +13,18 @@ export const colors = {
 };
 
 export const gradients = {
-  app: ["#f3ecfa", "#f9eef7", "#fce9f4"],
+  app: ["#050505", "#090909", "#050505"],
   primary: ["#9b5de5", "#c084fc", "#f472b6"],
 };
 
+export const employeeColors = ["#9b5de5", "#f472b6", "#fb923c", "#34d399", "#c084fc", "#e05271"];
+
+export const ownerColors = employeeColors;
+
 export const shadows = {
   glass: {
-    shadowColor: colors.violet,
-    shadowOpacity: 0.13,
+    shadowColor: "#000000",
+    shadowOpacity: 0.28,
     shadowRadius: 24,
     shadowOffset: {
       width: 0,

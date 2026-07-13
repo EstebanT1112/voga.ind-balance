@@ -83,6 +83,7 @@ export function AnalyticsScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadReport} />}
+        style={styles.root}
       >
         <View style={styles.header}>
           <Text style={styles.title}>Analiticas</Text>
@@ -98,6 +99,7 @@ export function AnalyticsScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadReport} />}
+        style={styles.root}
       >
         <View style={styles.header}>
           <Text style={styles.title}>Analiticas</Text>
@@ -117,6 +119,7 @@ export function AnalyticsScreen() {
     <ScrollView
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadReport} />}
+      style={styles.root}
     >
       <View style={styles.header}>
         <Text style={styles.title}>Analíticas</Text>
@@ -319,6 +322,9 @@ function HorizontalBar({ color, label, percent, value }: { color: string; label:
 }
 
 const styles = StyleSheet.create({
+  root: {
+    backgroundColor: colors.background,
+  },
   content: {
     gap: 18,
     paddingBottom: 112,
@@ -350,8 +356,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   analyticsSkeletonKpi: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     flex: 1,
@@ -373,8 +379,8 @@ const styles = StyleSheet.create({
     width: "82%",
   },
   analyticsSkeletonChart: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     height: 220,

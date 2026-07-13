@@ -1,4 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { LiquidCard } from "../components/Liquid";
 import { useAuth } from "../auth/AuthProvider";
 import { colors } from "../theme/liquid";
@@ -8,6 +9,7 @@ export function LoginScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.brand}>voga.ind</Text>
         <Text style={styles.title}>Balance</Text>
@@ -24,7 +26,7 @@ export function LoginScreen() {
             inputMode="email"
             onChangeText={setEmail}
             placeholder="duena@example.com"
-            placeholderTextColor="rgba(90,60,120,0.38)"
+            placeholderTextColor="rgba(255,255,255,0.38)"
             style={styles.input}
             value={email}
           />
@@ -36,7 +38,7 @@ export function LoginScreen() {
             editable={!loading}
             onChangeText={setPassword}
             placeholder="Tu password"
-            placeholderTextColor="rgba(90,60,120,0.38)"
+            placeholderTextColor="rgba(255,255,255,0.38)"
             secureTextEntry
             style={styles.input}
             value={password}
@@ -55,6 +57,7 @@ export function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.background,
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 22,
@@ -92,8 +95,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   input: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     borderWidth: 1,
     color: colors.foreground,
