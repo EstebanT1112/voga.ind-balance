@@ -158,9 +158,6 @@ export function AppShell() {
 
   return (
     <View style={styles.safeArea}>
-      <View style={styles.blobTop} />
-      <View style={styles.blobBottom} />
-
       <Animated.View
         {...swipeResponder.panHandlers}
         style={[styles.content, { opacity: contentOpacity, transform: [{ translateX: contentTranslateX }] }]}
@@ -219,7 +216,7 @@ export function AppShell() {
         </View>
       </View>}
 
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
     </View>
   );
 }
@@ -231,25 +228,8 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "android" ? RNStatusBar.currentHeight ?? 24 : 52,
   },
   content: {
+    backgroundColor: colors.background,
     flex: 1,
-  },
-  blobTop: {
-    backgroundColor: "rgba(192,132,252,0.28)",
-    borderRadius: 190,
-    height: 300,
-    position: "absolute",
-    right: -110,
-    top: -110,
-    width: 300,
-  },
-  blobBottom: {
-    backgroundColor: "rgba(244,114,182,0.18)",
-    borderRadius: 160,
-    bottom: 70,
-    height: 240,
-    left: -90,
-    position: "absolute",
-    width: 240,
   },
   navWrap: {
     bottom: 0,
@@ -260,15 +240,15 @@ const styles = StyleSheet.create({
     right: 0,
   },
   nav: {
-    backgroundColor: "rgba(255,255,255,0.72)",
-    borderColor: "rgba(255,255,255,0.82)",
+    backgroundColor: "rgba(18,18,18,0.96)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 26,
     borderWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
     padding: 7,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.12,
+    shadowColor: "#000000",
+    shadowOpacity: 0.36,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: -8 },
     elevation: 12,
@@ -294,7 +274,7 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   navLabel: {
-    color: "rgba(155,93,229,0.38)",
+    color: "rgba(255,255,255,0.46)",
     fontSize: 10,
     fontWeight: "900",
   },

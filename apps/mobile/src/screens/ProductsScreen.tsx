@@ -348,7 +348,7 @@ export function ProductsScreen() {
             autoCapitalize="none"
             onChangeText={setSearch}
             placeholder="Buscar producto..."
-            placeholderTextColor="rgba(90,60,120,0.36)"
+            placeholderTextColor="rgba(255,255,255,0.36)"
             returnKeyType="search"
             style={styles.searchInput}
             value={search}
@@ -452,7 +452,7 @@ export function ProductsScreen() {
                 <TextInput
                   onChangeText={(value) => setForm((current) => ({ ...current, name: value }))}
                   placeholder="Remera básica oversize"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.name}
                 />
@@ -463,7 +463,7 @@ export function ProductsScreen() {
                     autoCapitalize="characters"
                     onChangeText={(value) => setForm((current) => ({ ...current, size: value }))}
                     placeholder="M, 38, S/M"
-                    placeholderTextColor="rgba(90,60,120,0.36)"
+                    placeholderTextColor="rgba(255,255,255,0.36)"
                     style={styles.formInput}
                     value={form.size}
                   />
@@ -474,7 +474,7 @@ export function ProductsScreen() {
                   multiline
                   onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
                   placeholder="Breve descripción..."
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={[styles.formInput, styles.textArea]}
                   value={form.description}
                 />
@@ -511,7 +511,7 @@ export function ProductsScreen() {
                   <TextInput
                     onChangeText={(value) => setForm((current) => ({ ...current, subcategory: value }))}
                     placeholder="Remera"
-                    placeholderTextColor="rgba(90,60,120,0.36)"
+                    placeholderTextColor="rgba(255,255,255,0.36)"
                     style={styles.formInput}
                     value={form.subcategory}
                   />
@@ -526,7 +526,7 @@ export function ProductsScreen() {
                       inputMode="numeric"
                       onChangeText={(value) => setForm((current) => ({ ...current, purchasePrice: value.replace(/\D/g, "") }))}
                       placeholder="0"
-                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      placeholderTextColor="rgba(255,255,255,0.36)"
                       style={styles.moneyInput}
                       value={form.purchasePrice}
                     />
@@ -539,7 +539,7 @@ export function ProductsScreen() {
                       inputMode="numeric"
                       onChangeText={(value) => setForm((current) => ({ ...current, salePrice: value.replace(/\D/g, "") }))}
                       placeholder="0"
-                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      placeholderTextColor="rgba(255,255,255,0.36)"
                       style={styles.moneyInput}
                       value={form.salePrice}
                     />
@@ -723,7 +723,7 @@ function ProductCard({
         <View style={styles.subcategory}>
           {product.subcategory ? (
             <>
-              <Tag color="rgba(90,60,120,0.45)" size={12} strokeWidth={2.2} />
+              <Tag color="rgba(255,255,255,0.45)" size={12} strokeWidth={2.2} />
               <Text numberOfLines={1} style={styles.subcategoryText}>
                 {product.subcategory}
               </Text>
@@ -814,6 +814,7 @@ function ProductDetailSheet({
 
 const styles = StyleSheet.create({
   root: {
+    backgroundColor: colors.background,
     flex: 1,
   },
   content: {
@@ -838,8 +839,8 @@ const styles = StyleSheet.create({
   },
   searchBox: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.36)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: "row",
@@ -863,8 +864,8 @@ const styles = StyleSheet.create({
     paddingRight: 20,
   },
   filterChip: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 15,
@@ -872,7 +873,7 @@ const styles = StyleSheet.create({
   },
   filterChipActive: {
     backgroundColor: colors.violet,
-    borderColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.14)",
     shadowColor: colors.violet,
     shadowOpacity: 0.35,
     shadowRadius: 14,
@@ -923,8 +924,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   productSkeletonCard: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     height: 278,
@@ -1087,7 +1088,7 @@ const styles = StyleSheet.create({
   fab: {
     alignItems: "center",
     backgroundColor: colors.violet,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     bottom: 92,
@@ -1113,7 +1114,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalBackdrop: {
-    backgroundColor: "rgba(20,10,35,0.52)",
+    backgroundColor: "rgba(0,0,0,0.72)",
     bottom: 0,
     left: 0,
     position: "absolute",
@@ -1121,16 +1122,16 @@ const styles = StyleSheet.create({
     top: 0,
   },
   sheet: {
-    backgroundColor: "rgba(255,255,255,0.88)",
-    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderTopLeftRadius: 34,
     borderTopRightRadius: 34,
     borderWidth: 1,
     maxHeight: "92%",
     paddingHorizontal: 20,
     paddingTop: 10,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.5,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: -12 },
     elevation: 20,
@@ -1190,7 +1191,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   photoDropText: {
-    color: "rgba(90,60,120,0.5)",
+    color: "rgba(255,255,255,0.5)",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -1217,8 +1218,8 @@ const styles = StyleSheet.create({
   },
   inputWrap: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
@@ -1249,8 +1250,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categoryOption: {
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -1270,8 +1271,8 @@ const styles = StyleSheet.create({
   },
   moneyInputWrap: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
@@ -1317,7 +1318,7 @@ const styles = StyleSheet.create({
   },
   creationOverlay: {
     alignItems: "center",
-    backgroundColor: "rgba(20,10,35,0.28)",
+    backgroundColor: "rgba(0,0,0,0.68)",
     bottom: 0,
     justifyContent: "center",
     left: 0,
@@ -1329,14 +1330,14 @@ const styles = StyleSheet.create({
   },
   creationToast: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderColor: "rgba(255,255,255,0.86)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderRadius: 30,
     borderWidth: 1,
     paddingHorizontal: 26,
     paddingVertical: 28,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.28,
+    shadowColor: "#000000",
+    shadowOpacity: 0.48,
     shadowRadius: 28,
     shadowOffset: { width: 0, height: 16 },
     width: "100%",
@@ -1344,7 +1345,7 @@ const styles = StyleSheet.create({
   creationIconWrap: {
     alignItems: "center",
     backgroundColor: colors.mint,
-    borderColor: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 2,
     height: 66,
@@ -1394,8 +1395,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   detailPriceCard: {
-    backgroundColor: "rgba(255,255,255,0.48)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     borderWidth: 1,
     flex: 1,

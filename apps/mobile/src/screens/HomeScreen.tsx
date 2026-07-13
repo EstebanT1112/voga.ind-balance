@@ -30,10 +30,20 @@ import { apiRequest } from "../lib/api";
 import type { Payment, PaymentsResponse } from "../payments/payment.types";
 import type { ApiProfile, ReportSummary, UsersResponse } from "../reports/report.types";
 import type { Sale, SalesResponse } from "../sales/sale.types";
-import { colors, formatMoney } from "../theme/liquid";
+import { colors, employeeColors, formatMoney, ownerColors } from "../theme/liquid";
 import { SaleDetail } from "./SalesScreen";
 
-const sellerColors = [colors.violet, colors.rose, colors.coral, colors.mint, colors.lilac, colors.red];
+const sellerColors = employeeColors;
+
+function getColorText(color: string): string {
+  const normalized = color.replace("#", "");
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+
+  return luminance > 165 ? colors.foreground : colors.white;
+}
 const paymentLabels: Record<Sale["paymentStatus"], string> = {
   overdue: "Vencida",
   paid: "Pagada",
@@ -392,7 +402,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
 
   if (profile?.role !== "owner") {
     return (
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} style={styles.homeRoot}>
         <View style={styles.header}>
           <View>
             <Text style={styles.month}>{month.label}</Text>
@@ -403,7 +413,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
             <Text style={styles.logoutText}>Salir</Text>
           </Pressable>
         </View>
-        <LiquidCard style={styles.emptyCard}>
+        <LiquidCard dark style={[styles.emptyCard, styles.homeDarkCard]}>
           <Text style={styles.emptyTitle}>Panel de vendedora</Text>
           <Text style={styles.emptyText}>Lo vamos a armar cuando terminemos la vista de dueña.</Text>
         </LiquidCard>
@@ -463,6 +473,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
     <ScrollView
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadHome} />}
+      style={styles.homeRoot}
     >
       <View style={styles.header}>
         <View>
@@ -477,7 +488,9 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
             onPress={openOwnerColor}
             style={({ pressed }) => [styles.ownerColorButton, { backgroundColor: profile?.color ?? colors.violet }, pressed && styles.pressed]}
           >
-            <Text style={styles.ownerColorInitials}>{getInitials(profile?.fullName ?? "Dueña")}</Text>
+            <Text style={[styles.ownerColorInitials, { color: getColorText(profile?.color ?? colors.violet) }]}>
+              {getInitials(profile?.fullName ?? "Dueña")}
+            </Text>
             <View style={styles.ownerColorSettingsBadge}>
               <Settings color={colors.violet} size={10} strokeWidth={2.8} />
             </View>
@@ -494,9 +507,8 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
         <HomeLoadingSkeleton />
       ) : (
       <>
-      <LiquidCard style={styles.hero}>
+      <LiquidCard dark style={[styles.hero, styles.homeDarkCard]}>
         <View style={styles.heroGlow} />
-        <View style={styles.heroHighlight} />
         <View style={styles.heroLabelRow}>
           <IconBubble Icon={DollarSign} tone={colors.violet} />
           <Text style={styles.heroLabel}>Ingreso esperado del mes</Text>
@@ -528,7 +540,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
 
       <View>
         <View style={styles.sectionHeader}>
-          <SectionLabel>Empleadas</SectionLabel>
+          <Text style={styles.homeSectionLabel}>Empleadas</Text>
           <View style={styles.sectionActions}>
             <Users color="rgba(155,93,229,0.5)" size={15} strokeWidth={2.3} />
             <Pressable onPress={openSellerManager} style={({ pressed }) => [styles.addSellerButton, pressed && styles.pressed]}>
@@ -550,7 +562,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
             />
           ))}
           {employeeRows.length === 0 ? (
-            <LiquidCard style={styles.emptyCard}>
+            <LiquidCard dark style={[styles.emptyCard, styles.homeDarkCard]}>
               <Text style={styles.emptyText}>Todavía no hay empleadas configuradas.</Text>
             </LiquidCard>
           ) : null}
@@ -578,11 +590,13 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
 
             <View style={styles.ownerColorContent}>
               <View style={[styles.ownerColorPreview, { backgroundColor: ownerColor }]}>
-                <Text style={styles.ownerColorPreviewText}>{getInitials(profile?.fullName ?? "Dueña")}</Text>
+                <Text style={[styles.ownerColorPreviewText, { color: getColorText(ownerColor) }]}>
+                  {getInitials(profile?.fullName ?? "Dueña")}
+                </Text>
               </View>
 
               <View style={styles.colorRow}>
-                {sellerColors.map((color) => {
+                {ownerColors.map((color) => {
                   const active = ownerColor === color;
 
                   return (
@@ -691,7 +705,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
                 <TextInput
                   onChangeText={(value) => setSellerForm((current) => ({ ...current, fullName: value }))}
                   placeholder="Nombre de la empleada"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={sellerForm.fullName}
                 />
@@ -706,7 +720,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
                       inputMode="email"
                       onChangeText={(value) => setSellerForm((current) => ({ ...current, email: value }))}
                       placeholder="empleada@email.com"
-                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      placeholderTextColor="rgba(255,255,255,0.36)"
                       style={styles.formInput}
                       value={sellerForm.email}
                     />
@@ -717,7 +731,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
                     <TextInput
                       onChangeText={(value) => setSellerForm((current) => ({ ...current, password: value }))}
                       placeholder="Minimo 6 caracteres"
-                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      placeholderTextColor="rgba(255,255,255,0.36)"
                       secureTextEntry
                       style={styles.formInput}
                       value={sellerForm.password}
@@ -838,12 +852,12 @@ function MetricTile({
   value: string;
 }) {
   const content = (
-    <View style={styles.metricTile}>
+    <View style={[styles.metricTile, styles.homeMetricTile]}>
       <View style={styles.metricTileHeader}>
         <Icon color={tone} size={13} strokeWidth={2.4} />
-        <Text style={styles.metricTileLabel}>{label}</Text>
+        <Text style={styles.homeMetricTileLabel}>{label}</Text>
       </View>
-      <Text style={styles.metricTileValue}>{value}</Text>
+      <Text style={styles.homeMetricTileValue}>{value}</Text>
     </View>
   );
 
@@ -877,21 +891,21 @@ function EmployeeCard({
 }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>
-      <LiquidCard style={[styles.employeeCard, !active && styles.employeeCardInactive]}>
+      <LiquidCard dark style={[styles.employeeCard, styles.homeDarkCard, !active && styles.employeeCardInactive]}>
       <View style={[styles.avatar, { backgroundColor: color }]}>
         <Text style={styles.avatarText}>{initials}</Text>
       </View>
       <View style={styles.employeeBody}>
-        <Text numberOfLines={1} style={styles.employeeName}>
+        <Text numberOfLines={1} style={styles.homeEmployeeName}>
           {fullName}
         </Text>
-        <Text style={styles.employeeSold}>
+        <Text style={styles.homeEmployeeSold}>
           {active ? "Vendido" : "Inactiva"}: <Text style={[styles.employeeSoldStrong, { color }]}>{formatMoney(sold)}</Text>
         </Text>
       </View>
       <View style={styles.employeeRight}>
-        <Text style={styles.employeeCommissionLabel}>Comisión 15%</Text>
-        <Text style={styles.employeeCommission}>{formatMoney(commission)}</Text>
+        <Text style={styles.homeEmployeeCommissionLabel}>Comisión 15%</Text>
+        <Text style={styles.homeEmployeeCommission}>{formatMoney(commission)}</Text>
       </View>
       <ChevronRight color="rgba(155,93,229,0.4)" size={15} strokeWidth={2.4} />
       </LiquidCard>
@@ -1303,15 +1317,15 @@ function OwnerMonthlyComparisonChart({ data }: { data: ComparisonSaleBar[] }) {
 
   return (
     <View>
-      <SectionLabel>Ventas del mes</SectionLabel>
-      <LiquidCard style={styles.ownerComparisonCard}>
+      <Text style={styles.homeSectionLabel}>Ventas del mes</Text>
+      <LiquidCard dark style={[styles.ownerComparisonCard, styles.homeDarkCard]}>
         <View style={styles.ownerComparisonList}>
           {data.map((item) => {
             const height = Math.max(8, Math.round((item.amount / maxAmount) * 122));
 
             return (
               <View key={item.id} style={styles.ownerComparisonItem}>
-                <Text numberOfLines={1} style={styles.ownerComparisonAmount}>
+                <Text numberOfLines={1} style={styles.homeOwnerComparisonAmount}>
                   {formatMoney(item.amount)}
                 </Text>
                 <View style={styles.ownerComparisonTrack}>
@@ -1319,7 +1333,7 @@ function OwnerMonthlyComparisonChart({ data }: { data: ComparisonSaleBar[] }) {
                 </View>
                 <View style={styles.ownerComparisonName}>
                   <View style={[styles.ownerComparisonDot, { backgroundColor: item.color }]} />
-                  <Text numberOfLines={1} style={styles.ownerComparisonLabel}>
+                  <Text numberOfLines={1} style={styles.homeOwnerComparisonLabel}>
                     {item.label}
                   </Text>
                 </View>
@@ -1339,6 +1353,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
   },
+  homeRoot: {
+    backgroundColor: "#050505",
+  },
+  homeDarkCard: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
+    shadowColor: "#000000",
+    shadowOpacity: 0.32,
+  },
   header: {
     alignItems: "flex-start",
     flexDirection: "row",
@@ -1351,7 +1374,7 @@ const styles = StyleSheet.create({
   },
   ownerColorButton: {
     alignItems: "center",
-    borderColor: "rgba(255,255,255,0.82)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 2,
     height: 42,
@@ -1369,8 +1392,10 @@ const styles = StyleSheet.create({
   },
   ownerColorSettingsBadge: {
     alignItems: "center",
-    backgroundColor: colors.white,
+    backgroundColor: "#111111",
+    borderColor: "rgba(255,255,255,0.18)",
     borderRadius: 999,
+    borderWidth: 1,
     bottom: -4,
     height: 18,
     justifyContent: "center",
@@ -1379,7 +1404,7 @@ const styles = StyleSheet.create({
     width: 18,
   },
   month: {
-    color: "rgba(155,93,229,0.55)",
+    color: "rgba(255,255,255,0.62)",
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1.5,
@@ -1387,32 +1412,32 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   title: {
-    color: colors.foreground,
+    color: colors.white,
     fontSize: 26,
     fontWeight: "900",
     lineHeight: 31,
   },
   subtitle: {
-    color: "rgba(90,60,120,0.55)",
+    color: "rgba(255,255,255,0.56)",
     fontSize: 13,
     marginTop: 2,
   },
   logout: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   logoutText: {
-    color: colors.violet,
+    color: colors.white,
     fontSize: 12,
     fontWeight: "900",
   },
   hero: {
-    backgroundColor: "rgba(255,255,255,0.34)",
-    borderColor: "rgba(255,255,255,0.6)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 32,
     padding: 24,
     shadowColor: colors.violet,
@@ -1431,7 +1456,7 @@ const styles = StyleSheet.create({
   },
   heroHighlight: {
     alignSelf: "center",
-    backgroundColor: "rgba(255,255,255,0.65)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderRadius: 999,
     height: 1,
     position: "absolute",
@@ -1445,12 +1470,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   heroLabel: {
-    color: "rgba(90,60,120,0.7)",
+    color: "rgba(255,255,255,0.7)",
     fontSize: 12,
     fontWeight: "800",
   },
   heroValue: {
-    color: colors.foreground,
+    color: colors.white,
     fontSize: 38,
     fontWeight: "900",
     lineHeight: 40,
@@ -1462,8 +1487,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   metricTile: {
-    backgroundColor: "rgba(255,255,255,0.32)",
-    borderColor: "rgba(255,255,255,0.6)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     borderWidth: 1,
     flexBasis: "30%",
@@ -1477,7 +1502,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   metricTileLabel: {
-    color: "rgba(90,60,120,0.6)",
+    color: "rgba(255,255,255,0.6)",
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -1487,6 +1512,29 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
+  homeMetricTile: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  homeMetricTileLabel: {
+    color: "rgba(255,255,255,0.66)",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  homeMetricTileValue: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  homeSectionLabel: {
+    color: "rgba(255,255,255,0.68)",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    marginBottom: 12,
+    textTransform: "uppercase",
+  },
   loading: {
     alignItems: "center",
     paddingVertical: 12,
@@ -1495,8 +1543,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   homeSkeletonHero: {
-    backgroundColor: "rgba(255,255,255,0.4)",
-    borderColor: "rgba(255,255,255,0.65)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 32,
     borderWidth: 1,
     padding: 24,
@@ -1526,7 +1574,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   homeSkeletonMetric: {
-    backgroundColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderRadius: 18,
     flex: 1,
     padding: 12,
@@ -1547,8 +1595,8 @@ const styles = StyleSheet.create({
   },
   homeSkeletonEmployee: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     flexDirection: "row",
@@ -1577,8 +1625,8 @@ const styles = StyleSheet.create({
     width: 68,
   },
   homeSkeletonChart: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     height: 210,
@@ -1675,7 +1723,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   employeeSold: {
-    color: "rgba(90,60,120,0.6)",
+    color: "rgba(255,255,255,0.6)",
     fontSize: 12,
     marginTop: 3,
   },
@@ -1686,7 +1734,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   employeeCommissionLabel: {
-    color: "rgba(90,60,120,0.5)",
+    color: "rgba(255,255,255,0.5)",
     fontSize: 10,
     fontWeight: "900",
     marginBottom: 4,
@@ -1694,6 +1742,28 @@ const styles = StyleSheet.create({
   },
   employeeCommission: {
     color: colors.foreground,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  homeEmployeeName: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  homeEmployeeSold: {
+    color: "rgba(255,255,255,0.62)",
+    fontSize: 12,
+    marginTop: 3,
+  },
+  homeEmployeeCommissionLabel: {
+    color: "rgba(255,255,255,0.52)",
+    fontSize: 10,
+    fontWeight: "900",
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  homeEmployeeCommission: {
+    color: colors.white,
     fontSize: 15,
     fontWeight: "900",
   },
@@ -1723,7 +1793,7 @@ const styles = StyleSheet.create({
     width: 7,
   },
   ownerComparisonLabel: {
-    color: "rgba(90,60,120,0.58)",
+    color: "rgba(255,255,255,0.58)",
     flexShrink: 1,
     fontSize: 10,
     fontWeight: "900",
@@ -1736,10 +1806,24 @@ const styles = StyleSheet.create({
     minHeight: 24,
     textAlign: "center",
   },
+  homeOwnerComparisonLabel: {
+    color: "rgba(255,255,255,0.64)",
+    flexShrink: 1,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  homeOwnerComparisonAmount: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 9,
+    fontWeight: "900",
+    minHeight: 24,
+    textAlign: "center",
+  },
   ownerComparisonTrack: {
     alignItems: "center",
-    backgroundColor: "rgba(155,93,229,0.08)",
-    borderColor: "rgba(255,255,255,0.58)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     height: 128,
@@ -1757,12 +1841,12 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   emptyTitle: {
-    color: colors.foreground,
+    color: colors.white,
     fontSize: 16,
     fontWeight: "900",
   },
   emptyText: {
-    color: colors.muted,
+    color: "rgba(255,255,255,0.64)",
     fontSize: 13,
     lineHeight: 19,
   },
@@ -1779,8 +1863,8 @@ const styles = StyleSheet.create({
   },
   detailBackButton: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 14,
     borderWidth: 1,
     height: 38,
@@ -1800,7 +1884,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   detailSubtitle: {
-    color: "rgba(90,60,120,0.5)",
+    color: "rgba(255,255,255,0.5)",
     fontSize: 12,
     marginTop: 2,
   },
@@ -1824,7 +1908,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   detailMetricLabel: {
-    color: "rgba(90,60,120,0.5)",
+    color: "rgba(255,255,255,0.5)",
     fontSize: 11,
     fontWeight: "900",
     marginBottom: 7,
@@ -1847,7 +1931,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   detailStatusLabel: {
-    color: "rgba(90,60,120,0.5)",
+    color: "rgba(255,255,255,0.5)",
     fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -1884,7 +1968,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   ledgerSellerText: {
-    color: "rgba(90,60,120,0.52)",
+    color: "rgba(255,255,255,0.52)",
     flexShrink: 1,
     fontSize: 11,
     fontWeight: "800",
@@ -1920,7 +2004,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   detailSaleProducts: {
-    color: "rgba(90,60,120,0.56)",
+    color: "rgba(255,255,255,0.56)",
     fontSize: 12,
     marginTop: 5,
   },
@@ -1931,13 +2015,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   detailSaleDate: {
-    color: "rgba(90,60,120,0.45)",
+    color: "rgba(255,255,255,0.45)",
     fontSize: 11,
     fontWeight: "800",
     textTransform: "uppercase",
   },
   paymentPill: {
-    backgroundColor: "rgba(255,255,255,0.42)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 9,
@@ -1997,7 +2081,7 @@ const styles = StyleSheet.create({
   monthlyBarTrack: {
     alignItems: "center",
     backgroundColor: "rgba(155,93,229,0.08)",
-    borderColor: "rgba(255,255,255,0.56)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     height: 118,
@@ -2012,7 +2096,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   monthlyBarLabel: {
-    color: "rgba(90,60,120,0.55)",
+    color: "rgba(255,255,255,0.55)",
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -2022,7 +2106,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalBackdrop: {
-    backgroundColor: "rgba(20,10,35,0.55)",
+    backgroundColor: "rgba(0,0,0,0.72)",
     bottom: 0,
     left: 0,
     position: "absolute",
@@ -2030,16 +2114,16 @@ const styles = StyleSheet.create({
     top: 0,
   },
   sheet: {
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderTopLeftRadius: 34,
     borderTopRightRadius: 34,
     borderWidth: 1,
     maxHeight: "92%",
     paddingHorizontal: 20,
     paddingTop: 10,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.5,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: -12 },
     elevation: 20,
@@ -2094,7 +2178,7 @@ const styles = StyleSheet.create({
   },
   ownerColorPreview: {
     alignItems: "center",
-    borderColor: "rgba(255,255,255,0.9)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 26,
     borderWidth: 2,
     height: 58,
@@ -2133,8 +2217,8 @@ const styles = StyleSheet.create({
   },
   managerItem: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
@@ -2175,8 +2259,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   formInput: {
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     color: colors.foreground,
@@ -2191,7 +2275,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   colorSwatch: {
-    borderColor: "rgba(255,255,255,0.9)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 2,
     height: 34,

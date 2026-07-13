@@ -50,7 +50,7 @@ function getExpenseCategoryConfig(category: string) {
 }
 
 function getSoftBackground(color: string): string {
-  return color.startsWith("#") ? `${color}18` : "rgba(90,60,120,0.08)";
+  return color.startsWith("#") ? `${color}18` : "rgba(255,255,255,0.08)";
 }
 
 const initialForm = {
@@ -309,7 +309,7 @@ export function ExpensesScreen() {
                 <TextInput
                   onChangeText={(value) => setForm((current) => ({ ...current, description: value }))}
                   placeholder="Ej: Bolsas para envios"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.description}
                 />
@@ -320,7 +320,7 @@ export function ExpensesScreen() {
                   inputMode="numeric"
                   onChangeText={(value) => setForm((current) => ({ ...current, amount: value.replace(/\D/g, "") }))}
                   placeholder="0"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.amount}
                 />
@@ -330,7 +330,7 @@ export function ExpensesScreen() {
                 <TextInput
                   onChangeText={(value) => setForm((current) => ({ ...current, note: value }))}
                   placeholder="Opcional"
-                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  placeholderTextColor="rgba(255,255,255,0.36)"
                   style={styles.formInput}
                   value={form.note}
                 />
@@ -488,7 +488,7 @@ function FormField({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { backgroundColor: colors.background, flex: 1 },
   content: {
     gap: 16,
     paddingBottom: 132,
@@ -545,8 +545,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   expenseSkeletonKpi: {
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     flex: 1,
@@ -569,8 +569,8 @@ const styles = StyleSheet.create({
   },
   expenseSkeletonCard: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.42)",
-    borderColor: "rgba(255,255,255,0.68)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     flexDirection: "row",
@@ -694,15 +694,15 @@ const styles = StyleSheet.create({
   },
   confirmCard: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.96)",
-    borderColor: "rgba(255,255,255,0.9)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderRadius: 28,
     borderWidth: 1,
     elevation: 22,
     padding: 24,
-    shadowColor: colors.violet,
+    shadowColor: "#000000",
     shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.24,
+    shadowOpacity: 0.5,
     shadowRadius: 30,
     width: "100%",
   },
@@ -814,7 +814,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalBackdrop: {
-    backgroundColor: "rgba(20,10,35,0.55)",
+    backgroundColor: "rgba(0,0,0,0.72)",
     bottom: 0,
     left: 0,
     position: "absolute",
@@ -822,16 +822,16 @@ const styles = StyleSheet.create({
     top: 0,
   },
   sheet: {
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderTopLeftRadius: 34,
     borderTopRightRadius: 34,
     borderWidth: 1,
     maxHeight: "92%",
     paddingHorizontal: 20,
     paddingTop: 10,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.5,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: -12 },
     elevation: 20,
@@ -883,8 +883,8 @@ const styles = StyleSheet.create({
   },
   categoryChip: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
@@ -904,8 +904,8 @@ const styles = StyleSheet.create({
   categoryTextActive: { color: colors.white },
   inputWrap: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.5)",
-    borderColor: "rgba(255,255,255,0.78)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",

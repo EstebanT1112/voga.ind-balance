@@ -4,14 +4,14 @@ import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, View,
 import { colors, shadows } from "../theme/liquid";
 
 interface LiquidCardProps extends PropsWithChildren {
+  dark?: boolean;
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
 }
 
-export function LiquidCard({ children, onPress, style }: LiquidCardProps) {
+export function LiquidCard({ children, dark = true, onPress, style }: LiquidCardProps) {
   const content = (
-    <View style={[styles.card, style]}>
-      <View style={styles.shimmer} />
+    <View style={[styles.card, dark && styles.cardDark, style]}>
       {children}
     </View>
   );
@@ -309,27 +309,25 @@ export function EmptyState({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "rgba(255,255,255,0.48)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 28,
     borderWidth: 1,
     overflow: "hidden",
     ...shadows.glass,
   },
-  shimmer: {
-    alignSelf: "center",
-    backgroundColor: "rgba(255,255,255,0.78)",
-    height: 1,
-    position: "absolute",
-    top: 0,
-    width: "78%",
+  cardDark: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
+    shadowColor: "#000000",
+    shadowOpacity: 0.28,
   },
   pressed: {
     opacity: 0.82,
     transform: [{ scale: 0.98 }],
   },
   sectionLabel: {
-    color: "rgba(155,93,229,0.62)",
+    color: "rgba(255,255,255,0.68)",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -361,7 +359,7 @@ const styles = StyleSheet.create({
   },
   successOverlay: {
     alignItems: "center",
-    backgroundColor: "rgba(20,10,35,0.24)",
+    backgroundColor: "rgba(0,0,0,0.68)",
     bottom: 0,
     justifyContent: "center",
     left: 0,
@@ -373,14 +371,14 @@ const styles = StyleSheet.create({
   },
   successToast: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.94)",
-    borderColor: "rgba(255,255,255,0.86)",
+    backgroundColor: "#171717",
+    borderColor: "rgba(255,255,255,0.22)",
     borderRadius: 30,
     borderWidth: 1,
     paddingHorizontal: 26,
     paddingVertical: 26,
-    shadowColor: colors.violet,
-    shadowOpacity: 0.28,
+    shadowColor: "#000000",
+    shadowOpacity: 0.48,
     shadowRadius: 28,
     shadowOffset: { width: 0, height: 16 },
     width: "100%",
@@ -388,7 +386,7 @@ const styles = StyleSheet.create({
   successIconWrap: {
     alignItems: "center",
     backgroundColor: colors.mint,
-    borderColor: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 2,
     height: 62,
@@ -415,8 +413,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   skeletonBlock: {
-    backgroundColor: "rgba(155,93,229,0.13)",
-    borderColor: "rgba(255,255,255,0.52)",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 8,
     borderWidth: 1,
     overflow: "hidden",
@@ -470,8 +468,8 @@ const styles = StyleSheet.create({
   },
   internalBackButton: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.46)",
-    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 14,
     borderWidth: 1,
     height: 40,
@@ -488,7 +486,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   internalSubtitle: {
-    color: "rgba(90,60,120,0.5)",
+    color: "rgba(255,255,255,0.58)",
     fontSize: 12,
     marginTop: 2,
   },
