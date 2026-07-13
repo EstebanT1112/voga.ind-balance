@@ -5,9 +5,10 @@ import { LoginScreen } from "./src/screens/LoginScreen";
 import { colors } from "./src/theme/liquid";
 
 function Root() {
-  const { bootstrapping, session } = useAuth();
+  const { bootstrapping, profile, session } = useAuth();
+  const profileReady = session !== null && profile?.id === session.user.id;
 
-  if (bootstrapping) {
+  if (bootstrapping || (session !== null && !profileReady)) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={colors.violet} />
@@ -15,7 +16,7 @@ function Root() {
     );
   }
 
-  return session ? <AppShell /> : <LoginScreen />;
+  return profileReady ? <AppShell /> : <LoginScreen />;
 }
 
 export default function App() {
