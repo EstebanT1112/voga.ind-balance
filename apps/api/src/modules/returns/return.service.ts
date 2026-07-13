@@ -58,6 +58,10 @@ export const returnService = {
         throw new HttpError(404, "not_found", "Sale not found");
       }
 
+      if (profile.role === "seller" && sale.seller_id !== profile.id) {
+        throw new HttpError(404, "not_found", "Sale not found");
+      }
+
       const selectedIds = new Set(data.saleItemIds);
       const selectedTotal = sale.items
         .filter((item) => item.status === "sold" && selectedIds.has(item.id))
@@ -67,6 +71,10 @@ export const returnService = {
       const returnId = await returnRepository.register({ ...data, refundAmount }, profile.id);
       return await this.getById(returnId, profile);
     } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
       throw new HttpError(400, "bad_request", getSupabaseErrorMessage(error));
     }
   },

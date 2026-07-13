@@ -20,13 +20,18 @@ function getSoldCatalogCutoff(now = new Date()): string {
   return cutoff.toISOString();
 }
 
-async function listRecentlySoldProductIds(): Promise<string[]> {
-  const { data, error } = await supabaseAdmin
+async function listRecentlySoldProductIds(sellerId?: string): Promise<string[]> {
+  let query = supabaseAdmin
     .from("sale_items")
-    .select("product_id, sales!inner(sale_date)")
+    .select("product_id, sales!inner(sale_date, seller_id)")
     .eq("status", "sold")
-    .gte("sales.sale_date", getSoldCatalogCutoff())
-    .returns<Array<{ product_id: string }>>();
+    .gte("sales.sale_date", getSoldCatalogCutoff());
+
+  if (sellerId) {
+    query = query.eq("sales.seller_id", sellerId);
+  }
+
+  const { data, error } = await query.returns<Array<{ product_id: string }>>();
 
   if (error) {
     throw error;
@@ -36,7 +41,7 @@ async function listRecentlySoldProductIds(): Promise<string[]> {
 }
 
 export const productRepository = {
-  async list(filters: ProductListFilters): Promise<ProductRow[]> {
+  async list(filters: ProductListFilters, sellerId?: string): Promise<ProductRow[]> {
     let query = supabaseAdmin.from("products").select(productSelect).order("created_at", {
       ascending: false,
     });
@@ -44,7 +49,7 @@ export const productRepository = {
     if (filters.status === "available") {
       query = query.eq("status", filters.status);
     } else {
-      const recentlySoldProductIds = await listRecentlySoldProductIds();
+      const recentlySoldProductIds = await listRecentlySoldProductIds(sellerId);
 
       if (filters.status === "sold") {
         if (recentlySoldProductIds.length === 0) {
@@ -88,6 +93,23 @@ export const productRepository = {
     }
 
     return data;
+  },
+
+  async isSoldBySeller(productId: string, sellerId: string): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+      .from("sale_items")
+      .select("id, sales!inner(seller_id)")
+      .eq("product_id", productId)
+      .eq("status", "sold")
+      .eq("sales.seller_id", sellerId)
+      .limit(1)
+      .maybeSingle<{ id: string }>();
+
+    if (error) {
+      throw error;
+    }
+
+    return data !== null;
   },
 
   async create(data: CreateProductData, createdBy: string): Promise<ProductRow> {
