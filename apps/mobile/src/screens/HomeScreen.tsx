@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, RotateCcw, Settings, ShoppingBag, TrendingUp, Users, WalletCards } from "lucide-react-native";
+import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, LogOut, Mail, Palette, Plus, ReceiptText, RotateCcw, Settings, ShoppingBag, TrendingUp, Users, WalletCards } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
 import {
   EmptyState,
@@ -128,6 +128,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
   const [creatingSeller, setCreatingSeller] = useState(false);
   const [sellerForm, setSellerForm] = useState({ active: true, color: colors.violet, email: "", fullName: "", password: "" });
   const [sellerManagerOpen, setSellerManagerOpen] = useState(false);
+  const [sellerProfileOpen, setSellerProfileOpen] = useState(false);
   const [sellers, setSellers] = useState<ApiProfile[]>([]);
   const [employeeDetailId, setEmployeeDetailId] = useState<string | null>(null);
   const [ledgerView, setLedgerView] = useState<LedgerView | null>(null);
@@ -171,12 +172,14 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
   }, [loadHome]);
 
   useEffect(() => {
-    onChromeHiddenChange?.(selectedSale !== null || employeeDetailId !== null || ledgerView !== null);
+    onChromeHiddenChange?.(
+      selectedSale !== null || employeeDetailId !== null || ledgerView !== null || sellerProfileOpen,
+    );
 
     return () => {
       onChromeHiddenChange?.(false);
     };
-  }, [employeeDetailId, ledgerView, onChromeHiddenChange, selectedSale]);
+  }, [employeeDetailId, ledgerView, onChromeHiddenChange, selectedSale, sellerProfileOpen]);
 
   const employeeRows = useMemo(
     () =>
@@ -401,7 +404,25 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
   };
 
   if (profile?.role === "seller") {
-    return <SellerHomeScreen profile={profile} session={session} signOut={signOut} />;
+    if (sellerProfileOpen) {
+      return (
+        <SellerProfileScreen
+          email={session?.user.email ?? null}
+          onBack={() => setSellerProfileOpen(false)}
+          profile={profile}
+          signOut={signOut}
+        />
+      );
+    }
+
+    return (
+      <SellerHomeScreen
+        onOpenProfile={() => setSellerProfileOpen(true)}
+        profile={profile}
+        session={session}
+        signOut={signOut}
+      />
+    );
   }
 
   if (!profile) {
@@ -783,10 +804,12 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
 }
 
 function SellerHomeScreen({
+  onOpenProfile,
   profile,
   session,
   signOut,
 }: {
+  onOpenProfile: () => void;
   profile: ApiProfile;
   session: ReturnType<typeof useAuth>["session"];
   signOut: () => Promise<void>;
@@ -856,9 +879,18 @@ function SellerHomeScreen({
           <Text numberOfLines={1} style={styles.title}>Hola, {profile.fullName}</Text>
           <Text style={styles.subtitle}>Tu resumen del mes</Text>
         </View>
-        <Pressable onPress={signOut} style={styles.logout}>
-          <Text style={styles.logoutText}>Salir</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Abrir mi perfil"
+            onPress={onOpenProfile}
+            style={({ pressed }) => [styles.profileButton, pressed && styles.pressed]}
+          >
+            <Settings color={sellerColor} size={18} strokeWidth={2.5} />
+          </Pressable>
+          <Pressable onPress={signOut} style={styles.logout}>
+            <Text style={styles.logoutText}>Salir</Text>
+          </Pressable>
+        </View>
       </View>
 
       {errorMessage ? (
@@ -893,6 +925,74 @@ function SellerHomeScreen({
         </>
       ) : null}
     </ScrollView>
+  );
+}
+
+function SellerProfileScreen({
+  email,
+  onBack,
+  profile,
+  signOut,
+}: {
+  email: string | null;
+  onBack: () => void;
+  profile: ApiProfile;
+  signOut: () => Promise<void>;
+}) {
+  const sellerColor = profile.color ?? colors.violet;
+
+  return (
+    <ScreenEnter>
+      <View style={styles.profileRoot}>
+        <ScrollView contentContainerStyle={styles.profileContent}>
+          <InternalHeader onBack={onBack} subtitle="Cuenta de empleada" title="Mi perfil" />
+
+          <LiquidCard dark style={[styles.profileHero, { borderColor: sellerColor }]}>
+            <View style={[styles.profileAvatar, { backgroundColor: sellerColor }]}>
+              <Text style={styles.profileAvatarText}>{getInitials(profile.fullName)}</Text>
+            </View>
+            <View style={styles.profileHeroText}>
+              <Text numberOfLines={2} style={styles.profileName}>{profile.fullName}</Text>
+              <Text style={styles.profileRole}>Empleada</Text>
+            </View>
+          </LiquidCard>
+
+          <LiquidCard dark style={styles.profileDetails}>
+            <View style={styles.profileDetailRow}>
+              <Mail color="rgba(255,255,255,0.52)" size={17} strokeWidth={2.2} />
+              <View style={styles.profileDetailText}>
+                <Text style={styles.profileDetailLabel}>Correo</Text>
+                <Text numberOfLines={1} style={styles.profileDetailValue}>{email ?? "Sin correo"}</Text>
+              </View>
+            </View>
+            <View style={styles.profileDivider} />
+            <View style={styles.profileDetailRow}>
+              <Palette color={sellerColor} size={17} strokeWidth={2.2} />
+              <View style={styles.profileDetailText}>
+                <Text style={styles.profileDetailLabel}>Color asignado</Text>
+                <View style={styles.profileColorRow}>
+                  <View style={[styles.profileColorSwatch, { backgroundColor: sellerColor }]} />
+                  <Text style={styles.profileDetailValue}>{sellerColor.toUpperCase()}</Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.profileDivider} />
+            <View style={styles.profileDetailRow}>
+              <CheckCircle2 color={colors.mint} size={17} strokeWidth={2.2} />
+              <View style={styles.profileDetailText}>
+                <Text style={styles.profileDetailLabel}>Estado</Text>
+                <Text style={styles.profileDetailValue}>{profile.active ? "Activa" : "Inactiva"}</Text>
+              </View>
+            </View>
+          </LiquidCard>
+
+          <Pressable onPress={signOut} style={({ pressed }) => [styles.profileLogout, pressed && styles.pressed]}>
+            <LogOut color={colors.white} size={17} strokeWidth={2.5} />
+            <Text style={styles.profileLogoutText}>Cerrar sesión</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    </ScreenEnter>
   );
 }
 
@@ -1570,6 +1670,123 @@ const styles = StyleSheet.create({
   logoutText: {
     color: colors.white,
     fontSize: 12,
+    fontWeight: "900",
+  },
+  profileButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  profileRoot: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  profileContent: {
+    gap: 18,
+    paddingBottom: 42,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
+  profileHero: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 2,
+    flexDirection: "row",
+    gap: 16,
+    padding: 20,
+  },
+  profileHeroText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileAvatar: {
+    alignItems: "center",
+    borderRadius: 32,
+    height: 64,
+    justifyContent: "center",
+    width: 64,
+  },
+  profileAvatarText: {
+    color: colors.white,
+    fontSize: 19,
+    fontWeight: "900",
+  },
+  profileName: {
+    color: colors.white,
+    fontSize: 21,
+    fontWeight: "900",
+    lineHeight: 26,
+  },
+  profileRole: {
+    color: "rgba(255,255,255,0.56)",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 3,
+    textTransform: "uppercase",
+  },
+  profileDetails: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    padding: 18,
+  },
+  profileDetailRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 13,
+    minHeight: 46,
+  },
+  profileDetailText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileDetailLabel: {
+    color: "rgba(255,255,255,0.48)",
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  profileDetailValue: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  profileDivider: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    height: 1,
+    marginVertical: 8,
+  },
+  profileColorRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  profileColorSwatch: {
+    borderColor: "rgba(255,255,255,0.34)",
+    borderRadius: 7,
+    borderWidth: 1,
+    height: 15,
+    width: 15,
+  },
+  profileLogout: {
+    alignItems: "center",
+    backgroundColor: "rgba(239,68,68,0.16)",
+    borderColor: "rgba(239,68,68,0.38)",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 9,
+    justifyContent: "center",
+    minHeight: 50,
+    paddingHorizontal: 18,
+  },
+  profileLogoutText: {
+    color: colors.white,
+    fontSize: 14,
     fontWeight: "900",
   },
   hero: {
