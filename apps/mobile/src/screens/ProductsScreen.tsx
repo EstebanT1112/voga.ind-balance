@@ -70,6 +70,7 @@ const initialForm = {
 
 export function ProductsScreen() {
   const { profile, session } = useAuth();
+  const isOwner = profile?.role === "owner";
   const [category, setCategory] = useState<ProductCategory | "all">("all");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [form, setForm] = useState(initialForm);
@@ -190,6 +191,31 @@ export function ProductsScreen() {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
   }, [products, statusFilter]);
+
+  const emptyState = useMemo(() => {
+    if (statusFilter === "available") {
+      return {
+        detail: "Los productos que vuelvan a estar disponibles aparecerán acá.",
+        title: "No hay productos disponibles",
+      };
+    }
+
+    if (statusFilter === "sold") {
+      return {
+        detail: isOwner
+          ? "Los productos vendidos recientemente aparecerán acá."
+          : "Los productos que vendas aparecerán acá durante dos meses.",
+        title: isOwner ? "No hay productos vendidos" : "Todavía no vendiste productos",
+      };
+    }
+
+    return {
+      detail: isOwner
+        ? "Cuando cargues productos van a aparecer en esta sección."
+        : "Todavía no hay productos disponibles ni vendidos por vos.",
+      title: "Sin productos",
+    };
+  }, [isOwner, statusFilter]);
 
   const resetForm = () => {
     setForm(initialForm);
@@ -336,9 +362,9 @@ export function ProductsScreen() {
         refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadProducts} />}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Catálogo</Text>
+          <Text style={styles.title}>{isOwner ? "Catálogo" : "Mi catálogo"}</Text>
           <Text style={styles.subtitle}>
-            {totals.available} disponibles · {totals.sold} vendidos
+            {totals.available} disponibles · {totals.sold} {isOwner ? "vendidos" : "vendidos por vos"}
           </Text>
         </View>
 
@@ -374,6 +400,7 @@ export function ProductsScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
           {statusFilters.map((item) => {
             const active = item.value === statusFilter;
+            const label = item.value === "sold" && !isOwner ? "Vendidos por mí" : item.label;
 
             return (
               <Pressable
@@ -381,7 +408,7 @@ export function ProductsScreen() {
                 onPress={() => setStatusFilter(item.value)}
                 style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.pressed]}
               >
-                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item.label}</Text>
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text>
               </Pressable>
             );
           })}
@@ -399,18 +426,24 @@ export function ProductsScreen() {
         <View style={styles.grid}>
           {loading && products.length === 0 ? <ProductCatalogSkeleton /> : null}
           {visibleProducts.map((product) => (
-            <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} onPress={() => setSelectedProduct(product)} />
+            <ProductCard
+              key={product.id}
+              product={product}
+              showCost={isOwner}
+              soldLabel={isOwner ? "Vendido" : "Vendido por mí"}
+              onPress={() => setSelectedProduct(product)}
+            />
           ))}
           {!loading && !errorMessage && visibleProducts.length === 0 ? (
             <LiquidCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Sin productos</Text>
-              <Text style={styles.emptyText}>Cuando cargues productos van a aparecer en esta seccion.</Text>
+              <Text style={styles.emptyTitle}>{emptyState.title}</Text>
+              <Text style={styles.emptyText}>{emptyState.detail}</Text>
             </LiquidCard>
           ) : null}
         </View>
       </ScrollView>
 
-      {profile?.role === "owner" ? (
+      {isOwner ? (
         <Pressable onPress={openCreateForm} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
           <Plus color={colors.white} size={19} strokeWidth={2.5} />
           <Text style={styles.fabText}>Agregar</Text>
@@ -591,9 +624,10 @@ export function ProductsScreen() {
           {selectedProduct ? (
             <ProductDetailSheet
               product={selectedProduct}
-              showCost={profile?.role === "owner"}
+              showCost={isOwner}
+              soldLabel={isOwner ? "Vendido" : "Vendido por mí"}
               onClose={() => setSelectedProduct(null)}
-              onEdit={selectedProduct.status === "available" && profile?.role === "owner" ? () => openEditForm(selectedProduct) : undefined}
+              onEdit={selectedProduct.status === "available" && isOwner ? () => openEditForm(selectedProduct) : undefined}
             />
           ) : null}
         </KeyboardAvoidingView>
@@ -693,10 +727,12 @@ function ProductCard({
   onPress,
   product,
   showCost,
+  soldLabel,
 }: {
   onPress: () => void;
   product: Product;
   showCost: boolean;
+  soldLabel: string;
 }) {
   const sold = product.status === "sold";
 
@@ -707,7 +743,7 @@ function ProductCard({
         <ProductPhoto photoPath={product.photoPath} style={styles.image} />
         {sold ? (
           <View style={styles.soldOverlay}>
-            <GlassBadge label="Vendido" tone={colors.violet} />
+            <GlassBadge label={soldLabel} tone={colors.violet} />
           </View>
         ) : null}
       </View>
@@ -756,11 +792,13 @@ function ProductDetailSheet({
   onEdit,
   product,
   showCost,
+  soldLabel,
 }: {
   onClose: () => void;
   onEdit?: () => void;
   product: Product;
   showCost: boolean;
+  soldLabel: string;
 }) {
   return (
     <View style={styles.sheet}>
@@ -768,7 +806,7 @@ function ProductDetailSheet({
       <View style={styles.sheetHeader}>
         <View>
           <Text style={styles.sheetTitle}>{product.name}</Text>
-          <Text style={styles.sheetSubtitle}>{statusLabels[product.status]}</Text>
+          <Text style={styles.sheetSubtitle}>{product.status === "sold" ? soldLabel : statusLabels[product.status]}</Text>
         </View>
         <Pressable onPress={onClose} style={styles.closeButton}>
           <X color={colors.violet} size={18} strokeWidth={2.4} />
