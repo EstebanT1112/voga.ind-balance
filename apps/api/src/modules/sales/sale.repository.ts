@@ -1,5 +1,16 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
-import type { CreateSaleData, SaleItemRow, SaleListFilters, SaleRow, SaleWithItemsRow } from "./sale.types.js";
+import type {
+  CreateSaleData,
+  SaleItemRow,
+  SaleListFilters,
+  SaleRow,
+  SaleWithItemsRow,
+  SellerDashboardData,
+  SellerDashboardFilters,
+  SellerDashboardMovementRow,
+  SellerDashboardReturnRow,
+  SellerDashboardSaleRow,
+} from "./sale.types.js";
 import { withItems } from "./sale.mapper.js";
 
 const saleSelect =
@@ -40,6 +51,47 @@ function attachItems(sales: SaleRow[], items: SaleItemRow[]): SaleWithItemsRow[]
 }
 
 export const saleRepository = {
+  async getSellerDashboardData(sellerId: string, filters: SellerDashboardFilters): Promise<SellerDashboardData> {
+    const salesQuery = supabaseAdmin
+      .from("sales")
+      .select("sale_date, total_amount, pending_amount")
+      .eq("seller_id", sellerId)
+      .eq("admin_status", "active")
+      .gte("sale_date", filters.chartFrom)
+      .lte("sale_date", filters.to);
+    const paymentsQuery = supabaseAdmin
+      .from("payments")
+      .select("amount, sales!inner(seller_id, admin_status)")
+      .eq("sales.seller_id", sellerId)
+      .eq("sales.admin_status", "active")
+      .gte("paid_at", filters.from)
+      .lte("paid_at", filters.to);
+    const returnsQuery = supabaseAdmin
+      .from("returns")
+      .select("refund_amount, sales!inner(seller_id, admin_status)")
+      .eq("sales.seller_id", sellerId)
+      .eq("sales.admin_status", "active")
+      .gte("returned_at", filters.from)
+      .lte("returned_at", filters.to);
+
+    const [salesResult, paymentsResult, returnsResult] = await Promise.all([
+      salesQuery.returns<SellerDashboardSaleRow[]>(),
+      paymentsQuery.returns<SellerDashboardMovementRow[]>(),
+      returnsQuery.returns<SellerDashboardReturnRow[]>(),
+    ]);
+    const error = salesResult.error ?? paymentsResult.error ?? returnsResult.error;
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      payments: paymentsResult.data ?? [],
+      returns: returnsResult.data ?? [],
+      sales: salesResult.data ?? [],
+    };
+  },
+
   async list(filters: SaleListFilters): Promise<SaleWithItemsRow[]> {
     let query = supabaseAdmin.from("sales").select(saleSelect).order("sale_date", {
       ascending: false,

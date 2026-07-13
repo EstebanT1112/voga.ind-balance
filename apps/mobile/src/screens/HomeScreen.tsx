@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, Settings, TrendingUp, Users } from "lucide-react-native";
+import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, Settings, ShoppingBag, TrendingUp, Users, WalletCards } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
 import {
   EmptyState,
@@ -29,7 +29,7 @@ import {
 import { apiRequest } from "../lib/api";
 import type { Payment, PaymentsResponse } from "../payments/payment.types";
 import type { ApiProfile, ReportSummary, UsersResponse } from "../reports/report.types";
-import type { Sale, SalesResponse } from "../sales/sale.types";
+import type { Sale, SalesResponse, SellerDashboard } from "../sales/sale.types";
 import { colors, employeeColors, formatMoney, ownerColors } from "../theme/liquid";
 import { SaleDetail } from "./SalesScreen";
 
@@ -400,25 +400,12 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
     }
   };
 
-  if (profile?.role !== "owner") {
-    return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.homeRoot}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.month}>{month.label}</Text>
-            <Text style={styles.title}>Hola, {profile?.fullName}</Text>
-            <Text style={styles.subtitle}>Tu acceso ya esta activo.</Text>
-          </View>
-          <Pressable onPress={signOut} style={styles.logout}>
-            <Text style={styles.logoutText}>Salir</Text>
-          </Pressable>
-        </View>
-        <LiquidCard dark style={[styles.emptyCard, styles.homeDarkCard]}>
-          <Text style={styles.emptyTitle}>Panel de vendedora</Text>
-          <Text style={styles.emptyText}>Lo vamos a armar cuando terminemos la vista de dueña.</Text>
-        </LiquidCard>
-      </ScrollView>
-    );
+  if (profile?.role === "seller") {
+    return <SellerHomeScreen profile={profile} session={session} signOut={signOut} />;
+  }
+
+  if (!profile) {
+    return null;
   }
 
   const totals = report?.totals;
@@ -795,6 +782,148 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
   );
 }
 
+function SellerHomeScreen({
+  profile,
+  session,
+  signOut,
+}: {
+  profile: ApiProfile;
+  session: ReturnType<typeof useAuth>["session"];
+  signOut: () => Promise<void>;
+}) {
+  const [dashboard, setDashboard] = useState<SellerDashboard | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const month = currentMonthRange();
+  const sellerColor = profile.color ?? colors.violet;
+
+  const loadDashboard = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const monthEnd = new Date(month.to);
+      const chartFrom = startOfMonth(new Date(monthEnd.getFullYear(), monthEnd.getMonth() - 5, 1));
+      const query = new URLSearchParams({
+        chartFrom: chartFrom.toISOString(),
+        from: month.from,
+        to: month.to,
+      });
+      const response = await apiRequest<SellerDashboard>(`/sales/dashboard?${query.toString()}`, {
+        method: "GET",
+        session,
+      });
+
+      setDashboard(response);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "No se pudo cargar tu resumen");
+    } finally {
+      setLoading(false);
+    }
+  }, [month.from, month.to, session]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  const monthlyBars = useMemo<MonthlySaleBar[]>(() => {
+    const end = startOfMonth(new Date(month.to));
+    const amounts = new Map(dashboard?.monthlySales.map((item) => [item.month, item.amount]) ?? []);
+
+    return Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(end.getFullYear(), end.getMonth() - (5 - index), 1);
+
+      return {
+        amount: amounts.get(monthKey(date)) ?? 0,
+        label: new Intl.DateTimeFormat("es-AR", { month: "short" }).format(date).replace(".", ""),
+      };
+    });
+  }, [dashboard?.monthlySales, month.to]);
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={loading} tintColor={sellerColor} onRefresh={loadDashboard} />}
+      style={styles.homeRoot}
+    >
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.month}>{month.label}</Text>
+          <Text numberOfLines={1} style={styles.title}>Hola, {profile.fullName}</Text>
+          <Text style={styles.subtitle}>Tu resumen del mes</Text>
+        </View>
+        <Pressable onPress={signOut} style={styles.logout}>
+          <Text style={styles.logoutText}>Salir</Text>
+        </Pressable>
+      </View>
+
+      {errorMessage ? (
+        <ErrorState message={errorMessage} onRetry={loadDashboard} retrying={loading} title="No se pudo cargar tu resumen" />
+      ) : null}
+
+      {loading && !dashboard ? (
+        <SellerHomeLoadingSkeleton />
+      ) : dashboard ? (
+        <>
+          <LiquidCard dark style={[styles.hero, styles.homeDarkCard]}>
+            <View style={styles.heroGlow} />
+            <View style={styles.heroLabelRow}>
+              <IconBubble Icon={TrendingUp} tone={sellerColor} />
+              <Text style={styles.heroLabel}>Vendido este mes</Text>
+            </View>
+            <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={styles.heroValue}>
+              {formatMoney(dashboard.totals.soldAmount)}
+            </Text>
+
+            <View style={styles.heroGrid}>
+              <MetricTile twoColumn Icon={DollarSign} label="Cobrado" tone={colors.mint} value={formatMoney(dashboard.totals.collectedAmount)} />
+              <MetricTile twoColumn Icon={WalletCards} label="Pendiente" tone={colors.red} value={formatMoney(dashboard.totals.pendingAmount)} />
+              <MetricTile twoColumn Icon={ShoppingBag} label="Ventas" tone={sellerColor} value={String(dashboard.totals.saleCount)} />
+              <MetricTile twoColumn Icon={ReceiptText} label="Comisión 15%" tone={colors.coral} value={formatMoney(dashboard.totals.commissionAmount)} />
+            </View>
+          </LiquidCard>
+
+          <EmployeeMonthlyBarChart color={sellerColor} data={monthlyBars} />
+        </>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+function SellerHomeLoadingSkeleton() {
+  return (
+    <SkeletonGroup style={styles.homeSkeleton}>
+      <View style={styles.homeSkeletonHero}>
+        <View style={styles.homeSkeletonLabelRow}>
+          <SkeletonBlock style={styles.homeSkeletonIcon} />
+          <SkeletonBlock style={styles.homeSkeletonLabel} />
+        </View>
+        <SkeletonBlock style={styles.homeSkeletonTotal} />
+        <View style={[styles.homeSkeletonMetrics, styles.sellerSkeletonMetrics]}>
+          {Array.from({ length: 4 }, (_, index) => (
+            <View key={index} style={[styles.homeSkeletonMetric, styles.sellerSkeletonMetric]}>
+              <SkeletonBlock style={styles.homeSkeletonMetricLabel} />
+              <SkeletonBlock style={styles.homeSkeletonMetricValue} />
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={styles.homeSkeletonChart}>
+        <SkeletonBlock style={styles.homeSkeletonChartTitle} />
+        <View style={styles.homeSkeletonBars}>
+          {[0.42, 0.68, 0.54, 0.82, 0.62, 0.9].map((height, index) => (
+            <SkeletonBlock key={index} style={[styles.homeSkeletonBar, { height: 104 * height }]} />
+          ))}
+        </View>
+      </View>
+    </SkeletonGroup>
+  );
+}
+
 function HomeLoadingSkeleton() {
   return (
     <SkeletonGroup style={styles.homeSkeleton}>
@@ -843,16 +972,18 @@ function MetricTile({
   label,
   onPress,
   tone,
+  twoColumn = false,
   value,
 }: {
   Icon: typeof TrendingUp;
   label: string;
   onPress?: () => void;
   tone: string;
+  twoColumn?: boolean;
   value: string;
 }) {
   const content = (
-    <View style={[styles.metricTile, styles.homeMetricTile]}>
+    <View style={[styles.metricTile, styles.homeMetricTile, twoColumn && styles.sellerMetricTile]}>
       <View style={styles.metricTileHeader}>
         <Icon color={tone} size={13} strokeWidth={2.4} />
         <Text style={styles.homeMetricTileLabel}>{label}</Text>
@@ -1367,6 +1498,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+  },
   headerActions: {
     alignItems: "center",
     flexDirection: "row",
@@ -1516,6 +1651,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.07)",
     borderColor: "rgba(255,255,255,0.14)",
   },
+  sellerMetricTile: {
+    flexBasis: "42%",
+  },
   homeMetricTileLabel: {
     color: "rgba(255,255,255,0.66)",
     fontSize: 10,
@@ -1573,11 +1711,17 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 22,
   },
+  sellerSkeletonMetrics: {
+    flexWrap: "wrap",
+  },
   homeSkeletonMetric: {
     backgroundColor: "rgba(255,255,255,0.07)",
     borderRadius: 18,
     flex: 1,
     padding: 12,
+  },
+  sellerSkeletonMetric: {
+    flexBasis: "42%",
   },
   homeSkeletonMetricLabel: {
     height: 9,

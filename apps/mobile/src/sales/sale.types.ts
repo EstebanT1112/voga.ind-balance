@@ -46,6 +46,20 @@ export interface SalesResponse {
   next: string | null;
 }
 
+export interface SellerDashboard {
+  monthlySales: Array<{
+    amount: number;
+    month: string;
+  }>;
+  totals: {
+    collectedAmount: number;
+    commissionAmount: number;
+    pendingAmount: number;
+    saleCount: number;
+    soldAmount: number;
+  };
+}
+
 export interface CreateSaleInput {
   sellerId?: string;
   buyerFullName: string;

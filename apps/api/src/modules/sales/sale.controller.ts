@@ -1,7 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import { HttpError } from "../../lib/http-error.js";
 import { saleService } from "./sale.service.js";
-import { createSaleSchema, listSalesQuerySchema, saleIdParamsSchema } from "./sale.validations.js";
+import { createSaleSchema, listSalesQuerySchema, saleIdParamsSchema, sellerDashboardQuerySchema } from "./sale.validations.js";
 
 function getProfile(req: Request) {
   if (!req.auth) {
@@ -20,6 +20,17 @@ export const listSales: RequestHandler = async (req, res, next) => {
       items: sales,
       next: null,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSellerDashboard: RequestHandler = async (req, res, next) => {
+  try {
+    const filters = sellerDashboardQuerySchema.parse(req.query);
+    const dashboard = await saleService.getSellerDashboard(filters, getProfile(req));
+
+    res.json(dashboard);
   } catch (error) {
     next(error);
   }

@@ -97,3 +97,43 @@ export interface CreateSaleData {
   initialPaymentAmount: number;
   saleDate?: string;
 }
+
+export interface SellerDashboardFilters {
+  chartFrom: string;
+  from: string;
+  to: string;
+}
+
+export interface SellerDashboardSaleRow {
+  sale_date: string;
+  total_amount: number;
+  pending_amount: number;
+}
+
+export interface SellerDashboardMovementRow {
+  amount: number;
+}
+
+export interface SellerDashboardReturnRow {
+  refund_amount: number;
+}
+
+export interface SellerDashboardData {
+  payments: SellerDashboardMovementRow[];
+  returns: SellerDashboardReturnRow[];
+  sales: SellerDashboardSaleRow[];
+}
+
+export interface ApiSellerDashboard {
+  monthlySales: Array<{
+    amount: number;
+    month: string;
+  }>;
+  totals: {
+    collectedAmount: number;
+    commissionAmount: number;
+    pendingAmount: number;
+    saleCount: number;
+    soldAmount: number;
+  };
+}

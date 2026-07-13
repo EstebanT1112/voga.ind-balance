@@ -21,6 +21,12 @@ export const listSalesQuerySchema = z.object({
   to: z.string().datetime().optional(),
 });
 
+export const sellerDashboardQuerySchema = z.object({
+  chartFrom: z.string().datetime(),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
+});
+
 export const createSaleSchema = z.object({
   sellerId: uuidSchema.optional(),
   buyerFullName: nonEmptyStringSchema,
