@@ -294,7 +294,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
 
     if (profile.role === "seller") {
       setSellers([profile]);
-      setForm((current) => (current.sellerId ? current : { ...current, sellerId: profile.id }));
+      setForm((current) => ({ ...current, sellerId: profile.id }));
       return;
     }
 
@@ -435,7 +435,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
   };
 
   const createSale = async () => {
-    if (!session) {
+    if (!session || !profile) {
       return;
     }
 
@@ -470,7 +470,7 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
         buyerPhone: form.buyerPhone.trim(),
         initialPaymentAmount,
         productIds: selectedProductIds,
-        sellerId: form.sellerId || undefined,
+        sellerId: profile.role === "owner" ? form.sellerId || undefined : undefined,
       };
 
       const response = await apiRequest<{ item: Sale }>("/sales", {
@@ -664,27 +664,36 @@ export function SalesScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (
               </FormField>
 
               <View>
-                <Text style={styles.formLabel}>Vendedora</Text>
-                <View style={styles.sellerPicker}>
-                  {sellers
-                    .filter((seller) => seller.active && (seller.role === "seller" || seller.id === profile?.id))
-                    .map((seller) => {
-                      const active = form.sellerId === seller.id;
+                <Text style={styles.formLabel}>{profile?.role === "owner" ? "Vendedora" : "Venta registrada por"}</Text>
+                {profile?.role === "owner" ? (
+                  <View style={styles.sellerPicker}>
+                    {sellers
+                      .filter((seller) => seller.active && (seller.role === "seller" || seller.id === profile.id))
+                      .map((seller) => {
+                        const active = form.sellerId === seller.id;
 
-                      return (
-                        <Pressable
-                          key={seller.id}
-                          onPress={() => setForm((current) => ({ ...current, sellerId: seller.id }))}
-                          style={({ pressed }) => [styles.sellerOption, active && styles.sellerOptionActive, pressed && styles.pressed]}
-                        >
-                          <Avatar color={seller.color ?? colors.violet} initials={getInitials(seller.fullName)} size={26} />
-                          <Text numberOfLines={1} style={[styles.sellerOptionText, active && styles.sellerOptionTextActive]}>
-                            {seller.id === profile?.id ? `${seller.fullName} (yo)` : seller.fullName}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                </View>
+                        return (
+                          <Pressable
+                            key={seller.id}
+                            onPress={() => setForm((current) => ({ ...current, sellerId: seller.id }))}
+                            style={({ pressed }) => [styles.sellerOption, active && styles.sellerOptionActive, pressed && styles.pressed]}
+                          >
+                            <Avatar color={seller.color ?? colors.violet} initials={getInitials(seller.fullName)} size={26} />
+                            <Text numberOfLines={1} style={[styles.sellerOptionText, active && styles.sellerOptionTextActive]}>
+                              {seller.id === profile.id ? `${seller.fullName} (yo)` : seller.fullName}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                  </View>
+                ) : profile ? (
+                  <View style={[styles.sellerOption, styles.sellerOptionActive]}>
+                    <Avatar color={profile.color ?? colors.violet} initials={getInitials(profile.fullName)} size={26} />
+                    <Text numberOfLines={1} style={[styles.sellerOptionText, styles.sellerOptionTextActive]}>
+                      {profile.fullName}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
 
               {form.initialPaymentAmount !== "" ? (
