@@ -11,6 +11,7 @@ interface AuthContextValue {
   loading: boolean;
   password: string;
   profile: ApiProfile | null;
+  refreshProfile(): Promise<void>;
   session: Session | null;
   setEmail(email: string): void;
   setPassword(password: string): void;
@@ -83,6 +84,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       loading,
       password,
       profile,
+      async refreshProfile() {
+        if (!session) {
+          return;
+        }
+
+        setProfile(await loadProfile(session));
+      },
       session,
       setEmail,
       setPassword,

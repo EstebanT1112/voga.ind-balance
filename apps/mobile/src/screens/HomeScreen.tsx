@@ -100,13 +100,18 @@ type ComparisonSaleBar = {
 type LedgerView = "collected" | "pending";
 
 export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (hidden: boolean) => void } = {}) {
-  const { profile, session, signOut } = useAuth();
+  const { profile, refreshProfile, session, signOut } = useAuth();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [monthSales, setMonthSales] = useState<Sale[]>([]);
+  const [ownerColor, setOwnerColor] = useState(colors.violet);
+  const [ownerColorError, setOwnerColorError] = useState<string | null>(null);
+  const [ownerColorOpen, setOwnerColorOpen] = useState(false);
+  const [ownerColorSaved, setOwnerColorSaved] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [saleLoading, setSaleLoading] = useState(false);
+  const [savingOwnerColor, setSavingOwnerColor] = useState(false);
   const [savingSeller, setSavingSeller] = useState(false);
   const [sellerError, setSellerError] = useState<string | null>(null);
   const [sellerSuccess, setSellerSuccess] = useState<{ detail: string; title: string } | null>(null);
@@ -193,7 +198,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
       ? [
           {
             amount: totalsBySeller.get(profile.id) ?? 0,
-            color: colors.violet,
+            color: profile.color ?? colors.violet,
             id: profile.id,
             label: `${profile.fullName.split(" ")[0] || "Dueña"} (yo)`,
           },
@@ -210,6 +215,45 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
       })),
     ];
   }, [employeeRows, monthSales, profile]);
+
+  const openOwnerColor = () => {
+    setOwnerColor(profile?.color ?? colors.violet);
+    setOwnerColorError(null);
+    setOwnerColorSaved(false);
+    setOwnerColorOpen(true);
+  };
+
+  const closeOwnerColor = () => {
+    if (savingOwnerColor || ownerColorSaved) {
+      return;
+    }
+
+    setOwnerColorOpen(false);
+    setOwnerColorError(null);
+  };
+
+  const saveOwnerColor = async () => {
+    if (!session || !profile) {
+      return;
+    }
+
+    setSavingOwnerColor(true);
+    setOwnerColorError(null);
+
+    try {
+      await apiRequest(`/users/${profile.id}`, {
+        body: { color: ownerColor },
+        method: "PATCH",
+        session,
+      });
+      await refreshProfile();
+      setOwnerColorSaved(true);
+    } catch (error) {
+      setOwnerColorError(error instanceof Error ? error.message : "No se pudo guardar el color");
+    } finally {
+      setSavingOwnerColor(false);
+    }
+  };
 
   const pendingSales = useMemo(() => monthSales.filter((sale) => sale.pendingAmount > 0), [monthSales]);
 
@@ -426,9 +470,22 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
           <Text style={styles.title}>Hola, {profile?.fullName ?? "Dueña"}</Text>
           <Text style={styles.subtitle}>Tu resumen del mes</Text>
         </View>
-        <Pressable onPress={signOut} style={styles.logout}>
-          <Text style={styles.logoutText}>Salir</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Elegir mi color"
+            accessibilityRole="button"
+            onPress={openOwnerColor}
+            style={({ pressed }) => [styles.ownerColorButton, { backgroundColor: profile?.color ?? colors.violet }, pressed && styles.pressed]}
+          >
+            <Text style={styles.ownerColorInitials}>{getInitials(profile?.fullName ?? "Dueña")}</Text>
+            <View style={styles.ownerColorSettingsBadge}>
+              <Settings color={colors.violet} size={10} strokeWidth={2.8} />
+            </View>
+          </Pressable>
+          <Pressable onPress={signOut} style={styles.logout}>
+            <Text style={styles.logoutText}>Salir</Text>
+          </Pressable>
+        </View>
       </View>
 
       {!report && errorMessage ? (
@@ -503,6 +560,69 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
       <OwnerMonthlyComparisonChart data={monthlyComparisonBars} />
       </>
       )}
+
+      <Modal animationType="slide" transparent visible={ownerColorOpen} onRequestClose={closeOwnerColor}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closeOwnerColor} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <View>
+                <Text style={styles.sheetTitle}>Tu color</Text>
+                <Text style={styles.sheetSubtitle}>Identifica tus ventas y registros</Text>
+              </View>
+              <Pressable onPress={closeOwnerColor} style={styles.closeButton}>
+                <Text style={styles.closeText}>X</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.ownerColorContent}>
+              <View style={[styles.ownerColorPreview, { backgroundColor: ownerColor }]}>
+                <Text style={styles.ownerColorPreviewText}>{getInitials(profile?.fullName ?? "Dueña")}</Text>
+              </View>
+
+              <View style={styles.colorRow}>
+                {sellerColors.map((color) => {
+                  const active = ownerColor === color;
+
+                  return (
+                    <Pressable
+                      accessibilityLabel={`Seleccionar color ${color}`}
+                      key={color}
+                      onPress={() => setOwnerColor(color)}
+                      style={({ pressed }) => [
+                        styles.colorSwatch,
+                        { backgroundColor: color },
+                        active && styles.colorSwatchActive,
+                        pressed && styles.pressed,
+                      ]}
+                    />
+                  );
+                })}
+              </View>
+
+              {ownerColorError ? <Text style={styles.formError}>{ownerColorError}</Text> : null}
+
+              <Pressable
+                disabled={savingOwnerColor}
+                onPress={saveOwnerColor}
+                style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
+              >
+                {savingOwnerColor ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveButtonText}>Guardar color</Text>}
+              </Pressable>
+            </View>
+          </View>
+          <SuccessToast
+            detail="Se aplicará a tus ventas y registros"
+            onHidden={() => {
+              setOwnerColorSaved(false);
+              setOwnerColorOpen(false);
+            }}
+            title="Color actualizado"
+            visible={ownerColorSaved}
+          />
+        </View>
+      </Modal>
 
       <Modal animationType="slide" transparent visible={sellerManagerOpen || selectedSeller !== null || creatingSeller} onRequestClose={closeSeller}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
@@ -1224,6 +1344,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+  },
+  ownerColorButton: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.82)",
+    borderRadius: 16,
+    borderWidth: 2,
+    height: 42,
+    justifyContent: "center",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    width: 42,
+  },
+  ownerColorInitials: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  ownerColorSettingsBadge: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderRadius: 999,
+    bottom: -4,
+    height: 18,
+    justifyContent: "center",
+    position: "absolute",
+    right: -4,
+    width: 18,
+  },
   month: {
     color: "rgba(155,93,229,0.55)",
     fontSize: 11,
@@ -1932,6 +2086,29 @@ const styles = StyleSheet.create({
   formContent: {
     gap: 15,
     paddingBottom: 28,
+  },
+  ownerColorContent: {
+    alignItems: "center",
+    gap: 18,
+    paddingBottom: 30,
+  },
+  ownerColorPreview: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.9)",
+    borderRadius: 26,
+    borderWidth: 2,
+    height: 58,
+    justifyContent: "center",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    width: 58,
+  },
+  ownerColorPreviewText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: "900",
   },
   managerCreateButton: {
     alignItems: "center",
