@@ -14,7 +14,18 @@ import {
 } from "react-native";
 import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, Settings, TrendingUp, Users } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
-import { IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
+import {
+  EmptyState,
+  ErrorState,
+  IconBubble,
+  InternalHeader,
+  LiquidCard,
+  ScreenEnter,
+  SectionLabel,
+  SkeletonBlock,
+  SkeletonGroup,
+  SuccessToast,
+} from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import type { Payment, PaymentsResponse } from "../payments/payment.types";
 import type { ApiProfile, ReportSummary, UsersResponse } from "../reports/report.types";
@@ -98,6 +109,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
   const [saleLoading, setSaleLoading] = useState(false);
   const [savingSeller, setSavingSeller] = useState(false);
   const [sellerError, setSellerError] = useState<string | null>(null);
+  const [sellerSuccess, setSellerSuccess] = useState<{ detail: string; title: string } | null>(null);
   const [creatingSeller, setCreatingSeller] = useState(false);
   const [sellerForm, setSellerForm] = useState({ active: true, color: colors.violet, email: "", fullName: "", password: "" });
   const [sellerManagerOpen, setSellerManagerOpen] = useState(false);
@@ -265,6 +277,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
     setCreatingSeller(false);
     setSellerManagerOpen(false);
     setSellerError(null);
+    setSellerSuccess(null);
   };
 
   const backToSellerManager = () => {
@@ -294,6 +307,7 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
 
     setSavingSeller(true);
     setSellerError(null);
+    const wasCreating = creatingSeller;
 
     try {
       const response = await apiRequest<{ item: ApiProfile }>(creatingSeller ? "/users" : `/users/${selectedSeller!.id}`, {
@@ -321,6 +335,10 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
       );
       setSelectedSeller(response.item);
       setCreatingSeller(false);
+      setSellerSuccess({
+        detail: response.item.fullName,
+        title: wasCreating ? "Empleada creada" : "Cambios guardados",
+      });
     } catch (error) {
       setSellerError(error instanceof Error ? error.message : "No se pudo guardar la empleada");
     } finally {
@@ -413,6 +431,12 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
         </Pressable>
       </View>
 
+      {!report && errorMessage ? (
+        <ErrorState message={errorMessage} onRetry={loadHome} retrying={loading} title="No se pudo cargar el resumen" />
+      ) : loading && !report ? (
+        <HomeLoadingSkeleton />
+      ) : (
+      <>
       <LiquidCard style={styles.hero}>
         <View style={styles.heroGlow} />
         <View style={styles.heroHighlight} />
@@ -441,17 +465,8 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
         </View>
       </LiquidCard>
 
-      {loading && !report ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={colors.violet} />
-        </View>
-      ) : null}
-
       {errorMessage ? (
-        <LiquidCard style={styles.errorCard}>
-          <Text style={styles.errorTitle}>No se pudo cargar el resumen</Text>
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        </LiquidCard>
+        <ErrorState message={errorMessage} onRetry={loadHome} retrying={loading} title="No se pudo cargar el resumen" />
       ) : null}
 
       <View>
@@ -486,6 +501,8 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
       </View>
 
       <OwnerMonthlyComparisonChart data={monthlyComparisonBars} />
+      </>
+      )}
 
       <Modal animationType="slide" transparent visible={sellerManagerOpen || selectedSeller !== null || creatingSeller} onRequestClose={closeSeller}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
@@ -632,9 +649,58 @@ export function HomeScreen({ onChromeHiddenChange }: { onChromeHiddenChange?: (h
             </View>
             )}
           </View>
+          <SuccessToast
+            detail={sellerSuccess?.detail}
+            onHidden={() => setSellerSuccess(null)}
+            title={sellerSuccess?.title ?? "Cambios guardados"}
+            visible={sellerSuccess !== null}
+          />
         </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
+  );
+}
+
+function HomeLoadingSkeleton() {
+  return (
+    <SkeletonGroup style={styles.homeSkeleton}>
+      <View style={styles.homeSkeletonHero}>
+        <View style={styles.homeSkeletonLabelRow}>
+          <SkeletonBlock style={styles.homeSkeletonIcon} />
+          <SkeletonBlock style={styles.homeSkeletonLabel} />
+        </View>
+        <SkeletonBlock style={styles.homeSkeletonTotal} />
+        <View style={styles.homeSkeletonMetrics}>
+          {Array.from({ length: 3 }, (_, index) => (
+            <View key={index} style={styles.homeSkeletonMetric}>
+              <SkeletonBlock style={styles.homeSkeletonMetricLabel} />
+              <SkeletonBlock style={styles.homeSkeletonMetricValue} />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <SkeletonBlock style={styles.homeSkeletonSectionTitle} />
+      {Array.from({ length: 2 }, (_, index) => (
+        <View key={index} style={styles.homeSkeletonEmployee}>
+          <SkeletonBlock style={styles.homeSkeletonAvatar} />
+          <View style={styles.homeSkeletonEmployeeBody}>
+            <SkeletonBlock style={styles.homeSkeletonEmployeeName} />
+            <SkeletonBlock style={styles.homeSkeletonEmployeeMeta} />
+          </View>
+          <SkeletonBlock style={styles.homeSkeletonEmployeeAmount} />
+        </View>
+      ))}
+
+      <View style={styles.homeSkeletonChart}>
+        <SkeletonBlock style={styles.homeSkeletonChartTitle} />
+        <View style={styles.homeSkeletonBars}>
+          {[0.54, 0.82, 0.66, 0.92].map((height, index) => (
+            <SkeletonBlock key={index} style={[styles.homeSkeletonBar, { height: 104 * height }]} />
+          ))}
+        </View>
+      </View>
+    </SkeletonGroup>
   );
 }
 
@@ -739,16 +805,9 @@ function HomeLedgerScreen({
   const subtitle = type === "collected" ? "Historial de pagos del mes" : "Ventas con saldo pendiente";
 
   return (
-    <ScrollView contentContainerStyle={styles.detailContent}>
-      <View style={styles.detailHeader}>
-        <Pressable onPress={onBack} style={({ pressed }) => [styles.detailBackButton, pressed && styles.pressed]}>
-          <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.detailBackIcon} />
-        </Pressable>
-        <View style={styles.detailHeaderText}>
-          <Text style={styles.detailTitle}>{title}</Text>
-          <Text style={styles.detailSubtitle}>{monthLabel}</Text>
-        </View>
-      </View>
+    <ScreenEnter>
+      <ScrollView contentContainerStyle={styles.detailContent}>
+      <InternalHeader onBack={onBack} subtitle={monthLabel} title={title} />
 
       <LiquidCard style={styles.ledgerSummaryCard}>
         <Text style={styles.detailStatusLabel}>{subtitle}</Text>
@@ -784,13 +843,16 @@ function HomeLedgerScreen({
               })}
 
           {!loading && (type === "collected" ? payments.length === 0 : pendingSales.length === 0) ? (
-            <LiquidCard style={styles.emptyCard}>
-              <Text style={styles.emptyText}>{type === "collected" ? "No hay pagos registrados este mes." : "No hay montos pendientes este mes."}</Text>
-            </LiquidCard>
+            <EmptyState
+              description={type === "collected" ? "Los pagos que registres durante el mes aparecerán acá." : "Todas las ventas del mes están al día."}
+              Icon={type === "collected" ? ReceiptText : DollarSign}
+              title={type === "collected" ? "Sin pagos registrados" : "No hay montos pendientes"}
+            />
           ) : null}
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </ScreenEnter>
   );
 }
 
@@ -995,24 +1057,21 @@ function EmployeeDetailScreen({
   }, [month.to, monthlySales]);
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.detailContent}
-      refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadSales} />}
-    >
-      <View style={styles.detailHeader}>
-        <Pressable onPress={onBack} style={({ pressed }) => [styles.detailBackButton, pressed && styles.pressed]}>
-          <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.detailBackIcon} />
-        </Pressable>
-        <View style={styles.detailHeaderText}>
-          <Text numberOfLines={1} style={styles.detailTitle}>
-            {seller.fullName}
-          </Text>
-          <Text style={styles.detailSubtitle}>Ventas de {month.label}</Text>
-        </View>
-        <View style={[styles.detailAvatar, { backgroundColor: color }]}>
-          <Text style={styles.avatarText}>{getInitials(seller.fullName)}</Text>
-        </View>
-      </View>
+    <ScreenEnter>
+      <ScrollView
+        contentContainerStyle={styles.detailContent}
+        refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadSales} />}
+      >
+      <InternalHeader
+        accessory={
+          <View style={[styles.detailAvatar, { backgroundColor: color }]}>
+            <Text style={styles.avatarText}>{getInitials(seller.fullName)}</Text>
+          </View>
+        }
+        onBack={onBack}
+        subtitle={`Ventas de ${month.label}`}
+        title={seller.fullName}
+      />
 
       <View style={styles.detailKpiGrid}>
         <DetailMetric label="Total vendido" value={formatMoney(sold)} />
@@ -1031,10 +1090,7 @@ function EmployeeDetailScreen({
       </LiquidCard>
 
       {errorMessage ? (
-        <LiquidCard style={styles.errorCard}>
-          <Text style={styles.errorTitle}>No se pudo cargar el detalle</Text>
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        </LiquidCard>
+        <ErrorState message={errorMessage} onRetry={loadSales} retrying={loading} title="No se pudo cargar el detalle" />
       ) : null}
 
       <View>
@@ -1044,15 +1100,18 @@ function EmployeeDetailScreen({
             <EmployeeSaleRow key={sale.id} color={color} sale={sale} />
           ))}
           {!loading && sales.length === 0 ? (
-            <LiquidCard style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No hay ventas registradas para esta empleada en el mes.</Text>
-            </LiquidCard>
+            <EmptyState
+              description={`Las ventas de ${seller.fullName} durante ${month.label} aparecerán acá.`}
+              Icon={ReceiptText}
+              title="Sin ventas este mes"
+            />
           ) : null}
         </View>
       </View>
 
       <EmployeeMonthlyBarChart color={color} data={monthlyBars} />
-    </ScrollView>
+      </ScrollView>
+    </ScreenEnter>
   );
 }
 
@@ -1278,6 +1337,117 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
   },
+  homeSkeleton: {
+    gap: 14,
+  },
+  homeSkeletonHero: {
+    backgroundColor: "rgba(255,255,255,0.4)",
+    borderColor: "rgba(255,255,255,0.65)",
+    borderRadius: 32,
+    borderWidth: 1,
+    padding: 24,
+  },
+  homeSkeletonLabelRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+  },
+  homeSkeletonIcon: {
+    borderRadius: 14,
+    height: 38,
+    width: 38,
+  },
+  homeSkeletonLabel: {
+    height: 11,
+    width: 132,
+  },
+  homeSkeletonTotal: {
+    height: 36,
+    marginTop: 18,
+    width: "58%",
+  },
+  homeSkeletonMetrics: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 22,
+  },
+  homeSkeletonMetric: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+    borderRadius: 18,
+    flex: 1,
+    padding: 12,
+  },
+  homeSkeletonMetricLabel: {
+    height: 9,
+    width: "68%",
+  },
+  homeSkeletonMetricValue: {
+    height: 18,
+    marginTop: 10,
+    width: "86%",
+  },
+  homeSkeletonSectionTitle: {
+    height: 10,
+    marginTop: 4,
+    width: 72,
+  },
+  homeSkeletonEmployee: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16,
+  },
+  homeSkeletonAvatar: {
+    borderRadius: 999,
+    height: 46,
+    width: 46,
+  },
+  homeSkeletonEmployeeBody: {
+    flex: 1,
+    gap: 8,
+  },
+  homeSkeletonEmployeeName: {
+    height: 13,
+    width: "62%",
+  },
+  homeSkeletonEmployeeMeta: {
+    height: 10,
+    width: "42%",
+  },
+  homeSkeletonEmployeeAmount: {
+    height: 18,
+    width: 68,
+  },
+  homeSkeletonChart: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    height: 210,
+    marginTop: 4,
+    padding: 18,
+  },
+  homeSkeletonChartTitle: {
+    height: 11,
+    width: "44%",
+  },
+  homeSkeletonBars: {
+    alignItems: "flex-end",
+    flex: 1,
+    flexDirection: "row",
+    gap: 18,
+    justifyContent: "center",
+    paddingTop: 22,
+  },
+  homeSkeletonBar: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    width: 20,
+  },
   errorCard: {
     borderColor: "rgba(224,82,113,0.24)",
     padding: 16,
@@ -1443,8 +1613,8 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   detailContent: {
-    gap: 22,
-    paddingBottom: 112,
+    gap: 20,
+    paddingBottom: 32,
     paddingHorizontal: 20,
     paddingTop: 20,
   },

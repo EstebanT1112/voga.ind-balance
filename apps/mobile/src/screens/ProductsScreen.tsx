@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import * as ImagePicker from "expo-image-picker";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -16,10 +18,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Camera, Edit3, FileText, ImagePlus, Plus, Ruler, Save, Search, Shirt, Tag, X } from "lucide-react-native";
+import { Camera, CheckCircle2, Edit3, FileText, ImagePlus, Plus, Ruler, Save, Search, Shirt, Tag, X } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
-import { GlassBadge, LiquidCard } from "../components/Liquid";
+import { ErrorState, GlassBadge, LiquidCard, SkeletonBlock, SkeletonGroup } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import { getProductPhotoUrl, uploadProductPhoto } from "../products/productPhotos";
 import type {
@@ -75,12 +77,16 @@ export function ProductsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [imageAsset, setImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [loading, setLoading] = useState(false);
+  const [createdProduct, setCreatedProduct] = useState<Product | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProductStatus | "all">("all");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const successFade = useRef(new Animated.Value(0)).current;
+  const successScale = useRef(new Animated.Value(0.86)).current;
+  const successTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadProducts = useCallback(async () => {
     if (!session) {
@@ -118,6 +124,52 @@ export function ProductsScreen() {
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
+
+  useEffect(() => {
+    if (!createdProduct) {
+      return undefined;
+    }
+
+    successFade.setValue(0);
+    successScale.setValue(0.86);
+
+    Animated.parallel([
+      Animated.timing(successFade, {
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.spring(successScale, {
+        friction: 6,
+        tension: 90,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    successTimeout.current = setTimeout(() => {
+      Animated.timing(successFade, {
+        duration: 260,
+        easing: Easing.in(Easing.cubic),
+        toValue: 0,
+        useNativeDriver: true,
+      }).start(() => {
+        const product = createdProduct;
+        setCreatedProduct(null);
+        requestAnimationFrame(() => {
+          setSelectedProduct(product);
+        });
+      });
+    }, 1350);
+
+    return () => {
+      if (successTimeout.current) {
+        clearTimeout(successTimeout.current);
+        successTimeout.current = null;
+      }
+    };
+  }, [createdProduct, successFade, successScale]);
 
   const totals = useMemo(
     () => ({
@@ -254,16 +306,21 @@ export function ProductsScreen() {
         subcategory: form.subcategory.trim() || null,
       };
 
-      const response = await apiRequest<{ item: Product }>(editingProduct ? `/products/${editingProduct.id}` : "/products", {
+      const isEditing = editingProduct !== null;
+      const response = await apiRequest<{ item: Product }>(isEditing ? `/products/${editingProduct.id}` : "/products", {
         body: payload,
-        method: editingProduct ? "PATCH" : "POST",
+        method: isEditing ? "PATCH" : "POST",
         session,
       });
 
       setFormOpen(false);
-      setSelectedProduct(response.item);
       resetForm();
       await loadProducts();
+      if (isEditing) {
+        setSelectedProduct(response.item);
+      } else {
+        setCreatedProduct(response.item);
+      }
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "No se pudo guardar el producto");
     } finally {
@@ -331,17 +388,20 @@ export function ProductsScreen() {
         </ScrollView>
 
         {errorMessage ? (
-          <LiquidCard style={styles.errorCard}>
-            <Text style={styles.errorTitle}>No se pudo cargar el catalogo</Text>
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          </LiquidCard>
+          <ErrorState
+            message={errorMessage}
+            onRetry={loadProducts}
+            retrying={loading}
+            title="No se pudo cargar el catalogo"
+          />
         ) : null}
 
         <View style={styles.grid}>
+          {loading && products.length === 0 ? <ProductCatalogSkeleton /> : null}
           {visibleProducts.map((product) => (
             <ProductCard key={product.id} product={product} showCost={profile?.role === "owner"} onPress={() => setSelectedProduct(product)} />
           ))}
-          {!loading && visibleProducts.length === 0 ? (
+          {!loading && !errorMessage && visibleProducts.length === 0 ? (
             <LiquidCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Sin productos</Text>
               <Text style={styles.emptyText}>Cuando cargues productos van a aparecer en esta seccion.</Text>
@@ -504,6 +564,27 @@ export function ProductsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {createdProduct ? (
+        <Animated.View pointerEvents="none" style={[styles.creationOverlay, { opacity: successFade }]}>
+          <Animated.View
+            style={[
+              styles.creationToast,
+              {
+                transform: [{ scale: successScale }],
+              },
+            ]}
+          >
+            <View style={styles.creationIconWrap}>
+              <CheckCircle2 color={colors.white} size={34} strokeWidth={2.6} />
+            </View>
+            <Text style={styles.creationTitle}>Producto creado</Text>
+            <Text numberOfLines={2} style={styles.creationText}>
+              {createdProduct.name}
+            </Text>
+          </Animated.View>
+        </Animated.View>
+      ) : null}
+
       <Modal animationType="slide" transparent visible={selectedProduct !== null} onRequestClose={() => setSelectedProduct(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => setSelectedProduct(null)} />
@@ -584,6 +665,30 @@ function ProductPhoto({ photoPath, style }: { photoPath: string | null; style: o
   );
 }
 
+function ProductCatalogSkeleton() {
+  return (
+    <SkeletonGroup style={styles.productSkeletonGrid}>
+      {Array.from({ length: 4 }, (_, index) => (
+        <View key={index} style={styles.productSkeletonCard}>
+          <SkeletonBlock style={styles.productSkeletonImage} />
+          <View style={styles.productSkeletonBody}>
+            <SkeletonBlock style={styles.productSkeletonTitle} />
+            <View style={styles.productSkeletonBadges}>
+              <SkeletonBlock style={styles.productSkeletonBadgeWide} />
+              <SkeletonBlock style={styles.productSkeletonBadge} />
+            </View>
+            <SkeletonBlock style={styles.productSkeletonSubcategory} />
+            <View style={styles.productSkeletonPriceRow}>
+              <SkeletonBlock style={styles.productSkeletonPriceSmall} />
+              <SkeletonBlock style={styles.productSkeletonPrice} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 function ProductCard({
   onPress,
   product,
@@ -615,14 +720,16 @@ function ProductCard({
           <GlassBadge label={categoryLabels[product.category]} tone={colors.violet} />
           <GlassBadge label={`T: ${product.size}`} tone={colors.rose} />
         </View>
-        {product.subcategory ? (
-          <View style={styles.subcategory}>
-            <Tag color="rgba(90,60,120,0.45)" size={12} strokeWidth={2.2} />
-            <Text numberOfLines={1} style={styles.subcategoryText}>
-              {product.subcategory}
-            </Text>
-          </View>
-        ) : null}
+        <View style={styles.subcategory}>
+          {product.subcategory ? (
+            <>
+              <Tag color="rgba(90,60,120,0.45)" size={12} strokeWidth={2.2} />
+              <Text numberOfLines={1} style={styles.subcategoryText}>
+                {product.subcategory}
+              </Text>
+            </>
+          ) : null}
+        </View>
 
         <View style={styles.priceRow}>
           {showCost ? (
@@ -803,10 +910,72 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   productCard: {
+    height: 278,
     width: "100%",
   },
   productPressable: {
     width: "47.9%",
+  },
+  productSkeletonGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    width: "100%",
+  },
+  productSkeletonCard: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    height: 278,
+    overflow: "hidden",
+    width: "47.9%",
+  },
+  productSkeletonImage: {
+    borderRadius: 0,
+    borderWidth: 0,
+    height: 120,
+    width: "100%",
+  },
+  productSkeletonBody: {
+    flex: 1,
+    padding: 12,
+  },
+  productSkeletonTitle: {
+    height: 14,
+    width: "78%",
+  },
+  productSkeletonBadges: {
+    flexDirection: "row",
+    gap: 5,
+    marginTop: 14,
+  },
+  productSkeletonBadgeWide: {
+    height: 20,
+    width: 62,
+  },
+  productSkeletonBadge: {
+    height: 20,
+    width: 42,
+  },
+  productSkeletonSubcategory: {
+    height: 10,
+    marginTop: 13,
+    width: "54%",
+  },
+  productSkeletonPriceRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: "auto",
+  },
+  productSkeletonPriceSmall: {
+    height: 15,
+    width: 46,
+  },
+  productSkeletonPrice: {
+    height: 20,
+    width: 68,
   },
   soldCard: {
     opacity: 0.72,
@@ -838,6 +1007,7 @@ const styles = StyleSheet.create({
     top: 0,
   },
   productBody: {
+    flex: 1,
     padding: 12,
   },
   productName: {
@@ -858,6 +1028,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 5,
     marginTop: 8,
+    minHeight: 14,
   },
   subcategoryText: {
     color: colors.faint,
@@ -869,7 +1040,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 12,
+    marginTop: "auto",
+    paddingTop: 12,
   },
   priceLabel: {
     color: colors.faint,
@@ -1142,6 +1314,60 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 15,
     fontWeight: "900",
+  },
+  creationOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(20,10,35,0.28)",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    paddingHorizontal: 32,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 40,
+  },
+  creationToast: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderColor: "rgba(255,255,255,0.86)",
+    borderRadius: 30,
+    borderWidth: 1,
+    paddingHorizontal: 26,
+    paddingVertical: 28,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.28,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 16 },
+    width: "100%",
+  },
+  creationIconWrap: {
+    alignItems: "center",
+    backgroundColor: colors.mint,
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 66,
+    justifyContent: "center",
+    marginBottom: 14,
+    shadowColor: colors.mint,
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    width: 66,
+  },
+  creationTitle: {
+    color: colors.foreground,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  creationText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
+    marginTop: 6,
+    textAlign: "center",
   },
   detailContent: {
     gap: 16,

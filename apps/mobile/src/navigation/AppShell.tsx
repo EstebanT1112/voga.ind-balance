@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Home, Package, ReceiptText, ShoppingBag } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
-import { Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, PanResponder, Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { HomeScreen } from "../screens/HomeScreen";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
@@ -22,14 +22,149 @@ const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
 
 export function AppShell() {
   const [chromeHidden, setChromeHidden] = useState(false);
+  const [navWidth, setNavWidth] = useState(0);
   const [tab, setTab] = useState<Tab>("home");
+  const contentOpacity = useRef(new Animated.Value(1)).current;
+  const contentTranslateX = useRef(new Animated.Value(0)).current;
+  const indicatorPosition = useRef(new Animated.Value(0)).current;
+  const tabIndex = tabs.findIndex((item) => item.id === tab);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(contentOpacity, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentTranslateX, {
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.spring(indicatorPosition, {
+        damping: 20,
+        mass: 0.72,
+        stiffness: 190,
+        toValue: tabIndex,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [contentOpacity, contentTranslateX, indicatorPosition, tabIndex]);
+
+  const changeTab = (nextTab: Tab) => {
+    if (nextTab === tab) {
+      return;
+    }
+
+    const nextIndex = tabs.findIndex((item) => item.id === nextTab);
+    const direction = nextIndex > tabIndex ? 1 : -1;
+    contentOpacity.setValue(0.58);
+    contentTranslateX.setValue(direction * 34);
+    setChromeHidden(false);
+    setTab(nextTab);
+  };
+
+  const resetSwipe = useCallback(() => {
+    Animated.parallel([
+      Animated.spring(contentTranslateX, {
+        damping: 18,
+        mass: 0.7,
+        stiffness: 210,
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentOpacity, {
+        duration: 160,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [contentOpacity, contentTranslateX]);
+
+  const completeSwipe = useCallback((nextTab: Tab, direction: number) => {
+    Animated.parallel([
+      Animated.timing(contentTranslateX, {
+        duration: 120,
+        easing: Easing.in(Easing.cubic),
+        toValue: direction * -72,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentOpacity, {
+        duration: 120,
+        toValue: 0.35,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      contentTranslateX.setValue(direction * 34);
+      contentOpacity.setValue(0.58);
+      setTab(nextTab);
+    });
+  }, [contentOpacity, contentTranslateX]);
+
+  const swipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) => {
+          if (chromeHidden || Math.abs(gesture.dx) < 18 || Math.abs(gesture.dx) <= Math.abs(gesture.dy) * 1.35) {
+            return false;
+          }
+
+          const swipingToPrevious = gesture.dx > 0;
+          return swipingToPrevious ? tabIndex > 0 : tabIndex < tabs.length - 1;
+        },
+        onPanResponderGrant: () => {
+          contentOpacity.stopAnimation();
+          contentTranslateX.stopAnimation();
+        },
+        onPanResponderMove: (_, gesture) => {
+          const resistedDistance = Math.max(-84, Math.min(84, gesture.dx * 0.55));
+          contentTranslateX.setValue(resistedDistance);
+          contentOpacity.setValue(Math.max(0.82, 1 - Math.abs(resistedDistance) / 420));
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const shouldChangeTab = Math.abs(gesture.dx) > 72 || Math.abs(gesture.vx) > 0.48;
+
+          if (!shouldChangeTab) {
+            resetSwipe();
+            return;
+          }
+
+          const direction = gesture.dx < 0 ? 1 : -1;
+          const nextIndex = tabIndex + direction;
+
+          if (nextIndex < 0 || nextIndex >= tabs.length) {
+            resetSwipe();
+            return;
+          }
+
+          const nextTab = tabs[nextIndex];
+
+          if (!nextTab) {
+            resetSwipe();
+            return;
+          }
+
+          completeSwipe(nextTab.id, direction);
+        },
+        onPanResponderTerminate: resetSwipe,
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [chromeHidden, completeSwipe, contentOpacity, contentTranslateX, resetSwipe, tabIndex],
+  );
+
+  const navItemWidth = navWidth > 0 ? (navWidth - 14) / tabs.length : 0;
 
   return (
     <View style={styles.safeArea}>
       <View style={styles.blobTop} />
       <View style={styles.blobBottom} />
 
-      <View style={styles.content}>
+      <Animated.View
+        {...swipeResponder.panHandlers}
+        style={[styles.content, { opacity: contentOpacity, transform: [{ translateX: contentTranslateX }] }]}
+      >
         {tab === "home" ? (
           <HomeScreen onChromeHiddenChange={setChromeHidden} />
         ) : tab === "products" ? (
@@ -43,21 +178,32 @@ export function AppShell() {
         ) : (
           null
         )}
-      </View>
+      </Animated.View>
 
       {chromeHidden ? null : <View style={styles.navWrap}>
-        <View style={styles.nav}>
+        <View onLayout={(event) => setNavWidth(event.nativeEvent.layout.width)} style={styles.nav}>
+          {navItemWidth > 0 ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.navIndicator,
+                {
+                  transform: [{ translateX: Animated.multiply(indicatorPosition, navItemWidth) }],
+                  width: navItemWidth,
+                },
+              ]}
+            />
+          ) : null}
           {tabs.map((item) => {
             const isActive = item.id === tab;
 
             return (
               <Pressable
                 key={item.id}
-                onPress={() => {
-                  setChromeHidden(false);
-                  setTab(item.id);
-                }}
-                style={({ pressed }) => [styles.navItem, isActive && styles.navItemActive, pressed && styles.navItemPressed]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                onPress={() => changeTab(item.id)}
+                style={({ pressed }) => [styles.navItem, pressed && styles.navItemPressed]}
               >
                 <item.Icon
                   color={isActive ? colors.violet : "rgba(155,93,229,0.38)"}
@@ -134,9 +280,15 @@ const styles = StyleSheet.create({
     gap: 2,
     minHeight: 54,
     justifyContent: "center",
+    zIndex: 1,
   },
-  navItemActive: {
+  navIndicator: {
     backgroundColor: "rgba(155,93,229,0.12)",
+    borderRadius: 20,
+    bottom: 7,
+    left: 7,
+    position: "absolute",
+    top: 7,
   },
   navItemPressed: {
     opacity: 0.75,

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Tag, TrendingUp } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
-import { IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
+import { ErrorState, IconBubble, LiquidCard, SectionLabel, SkeletonBlock, SkeletonGroup } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import type { ReportSummary } from "../reports/report.types";
 import { colors, formatMoney } from "../theme/liquid";
@@ -78,6 +78,41 @@ export function AnalyticsScreen() {
     [report?.topSizes],
   );
 
+  if (loading && !report) {
+    return (
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadReport} />}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Analiticas</Text>
+          <Text style={styles.subtitle}>Que se vende y que comprar</Text>
+        </View>
+        <AnalyticsSkeleton />
+      </ScrollView>
+    );
+  }
+
+  if (errorMessage && !report) {
+    return (
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadReport} />}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Analiticas</Text>
+          <Text style={styles.subtitle}>Que se vende y que comprar</Text>
+        </View>
+        <ErrorState
+          message={errorMessage}
+          onRetry={loadReport}
+          retrying={loading}
+          title="No se pudieron cargar las analiticas"
+        />
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView
       contentContainerStyle={styles.content}
@@ -93,13 +128,13 @@ export function AnalyticsScreen() {
         <KpiCard Icon={Tag} color={colors.rose} label="Mejor subclasif." value={topSubcategory} />
       </View>
 
-      {loading && !report ? <ActivityIndicator color={colors.violet} /> : null}
-
       {errorMessage ? (
-        <LiquidCard style={styles.errorCard}>
-          <Text style={styles.errorTitle}>No se pudieron cargar las analíticas</Text>
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        </LiquidCard>
+        <ErrorState
+          message={errorMessage}
+          onRetry={loadReport}
+          retrying={loading}
+          title="No se pudieron cargar las analiticas"
+        />
       ) : null}
 
       <ChartCard title="Ingresos por categoría">
@@ -200,6 +235,36 @@ function EmptyText() {
   return <Text style={styles.emptyText}>Sin ventas activas en el período.</Text>;
 }
 
+function AnalyticsSkeleton() {
+  return (
+    <SkeletonGroup style={styles.analyticsSkeleton}>
+      <View style={styles.analyticsSkeletonKpis}>
+        {Array.from({ length: 2 }, (_, index) => (
+          <View key={index} style={styles.analyticsSkeletonKpi}>
+            <SkeletonBlock style={styles.analyticsSkeletonIcon} />
+            <SkeletonBlock style={styles.analyticsSkeletonLabel} />
+            <SkeletonBlock style={styles.analyticsSkeletonValue} />
+          </View>
+        ))}
+      </View>
+
+      {Array.from({ length: 3 }, (_, cardIndex) => (
+        <View key={cardIndex} style={styles.analyticsSkeletonChart}>
+          <SkeletonBlock style={styles.analyticsSkeletonHeading} />
+          <View style={styles.analyticsSkeletonBars}>
+            {[0.56, 0.82, 0.68, 0.94].map((height, index) => (
+              <View key={index} style={styles.analyticsSkeletonBarColumn}>
+                <SkeletonBlock style={[styles.analyticsSkeletonBar, { height: 104 * height }]} />
+                <SkeletonBlock style={styles.analyticsSkeletonBarLabel} />
+              </View>
+            ))}
+          </View>
+        </View>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 function KpiCard({ Icon, color, label, value }: { Icon: typeof TrendingUp; color: string; label: string; value: string }) {
   return (
     <LiquidCard style={styles.kpiCard}>
@@ -276,6 +341,70 @@ const styles = StyleSheet.create({
   kpiGrid: {
     flexDirection: "row",
     gap: 12,
+  },
+  analyticsSkeleton: {
+    gap: 18,
+  },
+  analyticsSkeletonKpis: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  analyticsSkeletonKpi: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    flex: 1,
+    padding: 16,
+  },
+  analyticsSkeletonIcon: {
+    borderRadius: 14,
+    height: 38,
+    width: 38,
+  },
+  analyticsSkeletonLabel: {
+    height: 10,
+    marginTop: 12,
+    width: "64%",
+  },
+  analyticsSkeletonValue: {
+    height: 18,
+    marginTop: 7,
+    width: "82%",
+  },
+  analyticsSkeletonChart: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    height: 220,
+    padding: 18,
+  },
+  analyticsSkeletonHeading: {
+    height: 11,
+    width: "42%",
+  },
+  analyticsSkeletonBars: {
+    alignItems: "flex-end",
+    flex: 1,
+    flexDirection: "row",
+    gap: 14,
+    justifyContent: "space-around",
+    paddingTop: 22,
+  },
+  analyticsSkeletonBarColumn: {
+    alignItems: "center",
+    gap: 8,
+    justifyContent: "flex-end",
+  },
+  analyticsSkeletonBar: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    width: 34,
+  },
+  analyticsSkeletonBarLabel: {
+    height: 9,
+    width: 42,
   },
   kpiCard: {
     flex: 1,
