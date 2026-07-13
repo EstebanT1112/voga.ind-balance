@@ -1,11 +1,39 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, ReceiptText, TrendingUp, Users } from "lucide-react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { AlertCircle, CheckCircle2, ChevronRight, DollarSign, Plus, ReceiptText, Settings, TrendingUp, Users } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
 import { IconBubble, LiquidCard, SectionLabel } from "../components/Liquid";
 import { apiRequest } from "../lib/api";
 import type { ApiProfile, ReportSummary, UsersResponse } from "../reports/report.types";
+import type { Sale, SalesResponse } from "../sales/sale.types";
 import { colors, formatMoney } from "../theme/liquid";
+
+const sellerColors = [colors.violet, colors.rose, colors.coral, colors.mint, colors.lilac, colors.red];
+const paymentLabels: Record<Sale["paymentStatus"], string> = {
+  overdue: "Vencida",
+  paid: "Pagada",
+  partial: "Parcial",
+  unpaid: "Sin pago",
+};
+
+const paymentTones: Record<Sale["paymentStatus"], string> = {
+  overdue: colors.red,
+  paid: colors.mint,
+  partial: colors.coral,
+  unpaid: colors.muted,
+};
 
 function currentMonthRange() {
   const now = new Date();
@@ -28,12 +56,44 @@ function getInitials(fullName: string): string {
     .join("");
 }
 
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(value));
+}
+
+function monthKey(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function startOfMonth(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), 1);
+}
+
+type MonthlySaleBar = {
+  amount: number;
+  label: string;
+};
+
+type ComparisonSaleBar = {
+  amount: number;
+  color: string;
+  id: string;
+  label: string;
+};
+
 export function HomeScreen() {
   const { profile, session, signOut } = useAuth();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [monthSales, setMonthSales] = useState<Sale[]>([]);
   const [report, setReport] = useState<ReportSummary | null>(null);
+  const [savingSeller, setSavingSeller] = useState(false);
+  const [sellerError, setSellerError] = useState<string | null>(null);
+  const [creatingSeller, setCreatingSeller] = useState(false);
+  const [sellerForm, setSellerForm] = useState({ active: true, color: colors.violet, email: "", fullName: "", password: "" });
+  const [sellerManagerOpen, setSellerManagerOpen] = useState(false);
   const [sellers, setSellers] = useState<ApiProfile[]>([]);
+  const [employeeDetailId, setEmployeeDetailId] = useState<string | null>(null);
+  const [selectedSeller, setSelectedSeller] = useState<ApiProfile | null>(null);
   const month = currentMonthRange();
 
   const loadHome = useCallback(async () => {
@@ -49,13 +109,15 @@ export function HomeScreen() {
         from: month.from,
         to: month.to,
       });
-      const [reportResponse, sellersResponse] = await Promise.all([
+      const [reportResponse, sellersResponse, salesResponse] = await Promise.all([
         apiRequest<ReportSummary>(`/reports?${query.toString()}`, { method: "GET", session }),
-        apiRequest<UsersResponse>("/users?role=seller&active=true", { method: "GET", session }),
+        apiRequest<UsersResponse>("/users?role=seller", { method: "GET", session }),
+        apiRequest<SalesResponse>(`/sales?${query.toString()}`, { method: "GET", session }),
       ]);
 
       setReport(reportResponse);
       setSellers(sellersResponse.items);
+      setMonthSales(salesResponse.items);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "No se pudo cargar el resumen");
     } finally {
@@ -73,23 +135,166 @@ export function HomeScreen() {
         const commission = report?.commissionsBySeller.find((item) => item.sellerId === seller.id);
 
         return {
+          active: seller.active,
           color: seller.color ?? [colors.violet, colors.rose, colors.coral, colors.mint][index % 4] ?? colors.violet,
           commission: commission?.commissionAmount ?? 0,
           fullName: seller.fullName,
+          id: seller.id,
           initials: getInitials(seller.fullName),
+          seller,
           sold: commission?.collectedAmount ?? 0,
         };
       }),
     [report?.commissionsBySeller, sellers],
   );
 
+  const monthlyComparisonBars = useMemo<ComparisonSaleBar[]>(() => {
+    const totalsBySeller = new Map<string, number>();
+
+    monthSales.forEach((sale) => {
+      totalsBySeller.set(sale.sellerId, (totalsBySeller.get(sale.sellerId) ?? 0) + sale.totalAmount);
+    });
+
+    const ownerRow = profile
+      ? [
+          {
+            amount: totalsBySeller.get(profile.id) ?? 0,
+            color: colors.violet,
+            id: profile.id,
+            label: `${profile.fullName.split(" ")[0] || "Dueña"} (yo)`,
+          },
+        ]
+      : [];
+
+    return [
+      ...ownerRow,
+      ...employeeRows.map((employee) => ({
+        amount: totalsBySeller.get(employee.id) ?? 0,
+        color: employee.color,
+        id: employee.id,
+        label: employee.fullName.split(" ")[0] || employee.fullName,
+      })),
+    ];
+  }, [employeeRows, monthSales, profile]);
+
+  const openSeller = (seller: ApiProfile) => {
+    setSellerManagerOpen(true);
+    setSelectedSeller(seller);
+    setSellerForm({
+      active: seller.active,
+      color: seller.color ?? colors.violet,
+      email: "",
+      fullName: seller.fullName,
+      password: "",
+    });
+    setSellerError(null);
+  };
+
+  const openSellerManager = () => {
+    setSellerManagerOpen(true);
+    setSelectedSeller(null);
+    setCreatingSeller(false);
+    setSellerError(null);
+  };
+
+  const openCreateSeller = () => {
+    setSellerManagerOpen(true);
+    setCreatingSeller(true);
+    setSelectedSeller(null);
+    setSellerForm({
+      active: true,
+      color: colors.violet,
+      email: "",
+      fullName: "",
+      password: "",
+    });
+    setSellerError(null);
+  };
+
+  const closeSeller = () => {
+    if (savingSeller) {
+      return;
+    }
+
+    setSelectedSeller(null);
+    setCreatingSeller(false);
+    setSellerManagerOpen(false);
+    setSellerError(null);
+  };
+
+  const backToSellerManager = () => {
+    if (savingSeller) {
+      return;
+    }
+
+    setSelectedSeller(null);
+    setCreatingSeller(false);
+    setSellerError(null);
+  };
+
+  const saveSeller = async () => {
+    if (!session || (!selectedSeller && !creatingSeller)) {
+      return;
+    }
+
+    if (!sellerForm.fullName.trim()) {
+      setSellerError("Completa el nombre de la empleada.");
+      return;
+    }
+
+    if (creatingSeller && (!sellerForm.email.trim() || sellerForm.password.length < 6)) {
+      setSellerError("Completa email y contraseña inicial de al menos 6 caracteres.");
+      return;
+    }
+
+    setSavingSeller(true);
+    setSellerError(null);
+
+    try {
+      const response = await apiRequest<{ item: ApiProfile }>(creatingSeller ? "/users" : `/users/${selectedSeller!.id}`, {
+        body: creatingSeller
+          ? {
+              active: sellerForm.active,
+              color: sellerForm.color,
+              email: sellerForm.email.trim(),
+              fullName: sellerForm.fullName.trim(),
+              password: sellerForm.password,
+            }
+          : {
+              active: sellerForm.active,
+              color: sellerForm.color,
+              fullName: sellerForm.fullName.trim(),
+            },
+        method: creatingSeller ? "POST" : "PATCH",
+        session,
+      });
+
+      setSellers((current) =>
+        creatingSeller
+          ? [...current, response.item].sort((a, b) => a.fullName.localeCompare(b.fullName))
+          : current.map((seller) => (seller.id === response.item.id ? response.item : seller)),
+      );
+      setSelectedSeller(response.item);
+      setCreatingSeller(false);
+    } catch (error) {
+      setSellerError(error instanceof Error ? error.message : "No se pudo guardar la empleada");
+    } finally {
+      setSavingSeller(false);
+    }
+  };
+
   if (profile?.role !== "owner") {
     return (
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.month}>{month.label}</Text>
-          <Text style={styles.title}>Hola, {profile?.fullName}</Text>
-          <Text style={styles.subtitle}>Tu acceso ya esta activo.</Text>
+          <View>
+            <Text style={styles.month}>{month.label}</Text>
+            <Text style={styles.title}>Hola, {profile?.fullName}</Text>
+            <Text style={styles.subtitle}>Tu acceso ya esta activo.</Text>
+          </View>
+          <Pressable onPress={signOut} style={styles.logout}>
+            <Text style={styles.logoutText}>Salir</Text>
+          </Pressable>
         </View>
         <LiquidCard style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Panel de vendedora</Text>
@@ -100,6 +305,21 @@ export function HomeScreen() {
   }
 
   const totals = report?.totals;
+  const employeeDetailRow = employeeRows.find((item) => item.id === employeeDetailId);
+
+  if (employeeDetailRow) {
+    return (
+      <EmployeeDetailScreen
+        color={employeeDetailRow.color}
+        commission={employeeDetailRow.commission}
+        month={month}
+        onBack={() => setEmployeeDetailId(null)}
+        seller={employeeDetailRow.seller}
+        session={session}
+        sold={employeeDetailRow.sold}
+      />
+    );
+  }
 
   return (
     <ScrollView
@@ -149,16 +369,23 @@ export function HomeScreen() {
       <View>
         <View style={styles.sectionHeader}>
           <SectionLabel>Empleadas</SectionLabel>
-          <Users color="rgba(155,93,229,0.5)" size={15} strokeWidth={2.3} />
+          <View style={styles.sectionActions}>
+            <Users color="rgba(155,93,229,0.5)" size={15} strokeWidth={2.3} />
+            <Pressable onPress={openSellerManager} style={({ pressed }) => [styles.addSellerButton, pressed && styles.pressed]}>
+              <Settings color={colors.white} size={15} strokeWidth={2.6} />
+            </Pressable>
+          </View>
         </View>
         <View style={styles.employeeList}>
           {employeeRows.map((item) => (
             <EmployeeCard
-              key={item.fullName}
+              key={item.id}
+              active={item.active}
               color={item.color}
               commission={item.commission}
               fullName={item.fullName}
               initials={item.initials}
+              onPress={() => setEmployeeDetailId(item.id)}
               sold={item.sold}
             />
           ))}
@@ -169,6 +396,156 @@ export function HomeScreen() {
           ) : null}
         </View>
       </View>
+
+      <OwnerMonthlyComparisonChart data={monthlyComparisonBars} />
+
+      <Modal animationType="slide" transparent visible={sellerManagerOpen || selectedSeller !== null || creatingSeller} onRequestClose={closeSeller}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={closeSeller} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <View>
+                <Text style={styles.sheetTitle}>
+                  {!creatingSeller && !selectedSeller ? "Gestionar empleadas" : creatingSeller ? "Nueva empleada" : "Empleada"}
+                </Text>
+                <Text style={styles.sheetSubtitle}>
+                  {!creatingSeller && !selectedSeller
+                    ? "Crea perfiles y edita los existentes"
+                    : creatingSeller
+                      ? "Crea el acceso para que pueda iniciar sesion"
+                      : "Datos visibles en ventas y comisiones"}
+                </Text>
+              </View>
+              <Pressable onPress={closeSeller} style={styles.closeButton}>
+                <Text style={styles.closeText}>X</Text>
+              </Pressable>
+            </View>
+
+            {!creatingSeller && !selectedSeller ? (
+              <View style={styles.formContent}>
+                <Pressable onPress={openCreateSeller} style={({ pressed }) => [styles.managerCreateButton, pressed && styles.pressed]}>
+                  <Plus color={colors.white} size={17} strokeWidth={2.6} />
+                  <Text style={styles.managerCreateText}>Crear empleada</Text>
+                </Pressable>
+
+                <View style={styles.managerList}>
+                  {sellers.map((seller) => {
+                    const color = seller.color ?? colors.violet;
+
+                    return (
+                      <Pressable
+                        key={seller.id}
+                        onPress={() => openSeller(seller)}
+                        style={({ pressed }) => [styles.managerItem, !seller.active && styles.managerItemInactive, pressed && styles.pressed]}
+                      >
+                        <View style={[styles.managerAvatar, { backgroundColor: color }]}>
+                          <Text style={styles.avatarText}>{getInitials(seller.fullName)}</Text>
+                        </View>
+                        <View style={styles.employeeBody}>
+                          <Text numberOfLines={1} style={styles.employeeName}>
+                            {seller.fullName}
+                          </Text>
+                          <Text style={styles.employeeSold}>{seller.active ? "Activa" : "Inactiva"}</Text>
+                        </View>
+                        <ChevronRight color="rgba(155,93,229,0.4)" size={15} strokeWidth={2.4} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : (
+            <View style={styles.formContent}>
+              <Pressable onPress={backToSellerManager} style={({ pressed }) => [styles.backToManagerButton, pressed && styles.pressed]}>
+                <ChevronRight color={colors.violet} size={14} strokeWidth={2.5} style={styles.backToManagerIcon} />
+                <Text style={styles.backToManagerText}>Volver a empleadas</Text>
+              </Pressable>
+
+              <View>
+                <Text style={styles.formLabel}>Nombre</Text>
+                <TextInput
+                  onChangeText={(value) => setSellerForm((current) => ({ ...current, fullName: value }))}
+                  placeholder="Nombre de la empleada"
+                  placeholderTextColor="rgba(90,60,120,0.36)"
+                  style={styles.formInput}
+                  value={sellerForm.fullName}
+                />
+              </View>
+
+              {creatingSeller ? (
+                <>
+                  <View>
+                    <Text style={styles.formLabel}>Email</Text>
+                    <TextInput
+                      autoCapitalize="none"
+                      inputMode="email"
+                      onChangeText={(value) => setSellerForm((current) => ({ ...current, email: value }))}
+                      placeholder="empleada@email.com"
+                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      style={styles.formInput}
+                      value={sellerForm.email}
+                    />
+                  </View>
+
+                  <View>
+                    <Text style={styles.formLabel}>Contraseña inicial</Text>
+                    <TextInput
+                      onChangeText={(value) => setSellerForm((current) => ({ ...current, password: value }))}
+                      placeholder="Minimo 6 caracteres"
+                      placeholderTextColor="rgba(90,60,120,0.36)"
+                      secureTextEntry
+                      style={styles.formInput}
+                      value={sellerForm.password}
+                    />
+                  </View>
+                </>
+              ) : null}
+
+              <View>
+                <Text style={styles.formLabel}>Color</Text>
+                <View style={styles.colorRow}>
+                  {sellerColors.map((color) => {
+                    const active = sellerForm.color === color;
+
+                    return (
+                      <Pressable
+                        key={color}
+                        onPress={() => setSellerForm((current) => ({ ...current, color }))}
+                        style={({ pressed }) => [
+                          styles.colorSwatch,
+                          { backgroundColor: color },
+                          active && styles.colorSwatchActive,
+                          pressed && styles.pressed,
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => setSellerForm((current) => ({ ...current, active: !current.active }))}
+                style={({ pressed }) => [styles.activeToggle, sellerForm.active && styles.activeToggleOn, pressed && styles.pressed]}
+              >
+                <Text style={[styles.activeToggleText, sellerForm.active && styles.activeToggleTextOn]}>
+                  {sellerForm.active ? "Activa" : "Inactiva"}
+                </Text>
+              </Pressable>
+
+              {sellerError ? <Text style={styles.formError}>{sellerError}</Text> : null}
+
+              <Pressable disabled={savingSeller} onPress={saveSeller} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
+                {savingSeller ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.saveButtonText}>{creatingSeller ? "Crear empleada" : "Guardar cambios"}</Text>
+                )}
+              </Pressable>
+            </View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -196,20 +573,25 @@ function MetricTile({
 }
 
 function EmployeeCard({
+  active,
   color,
   commission,
   fullName,
   initials,
+  onPress,
   sold,
 }: {
+  active: boolean;
   color: string;
   commission: number;
   fullName: string;
   initials: string;
+  onPress: () => void;
   sold: number;
 }) {
   return (
-    <LiquidCard style={styles.employeeCard}>
+    <Pressable onPress={onPress} style={({ pressed }) => [pressed && styles.pressed]}>
+      <LiquidCard style={[styles.employeeCard, !active && styles.employeeCardInactive]}>
       <View style={[styles.avatar, { backgroundColor: color }]}>
         <Text style={styles.avatarText}>{initials}</Text>
       </View>
@@ -218,7 +600,7 @@ function EmployeeCard({
           {fullName}
         </Text>
         <Text style={styles.employeeSold}>
-          Vendido: <Text style={[styles.employeeSoldStrong, { color }]}>{formatMoney(sold)}</Text>
+          {active ? "Vendido" : "Inactiva"}: <Text style={[styles.employeeSoldStrong, { color }]}>{formatMoney(sold)}</Text>
         </Text>
       </View>
       <View style={styles.employeeRight}>
@@ -226,7 +608,250 @@ function EmployeeCard({
         <Text style={styles.employeeCommission}>{formatMoney(commission)}</Text>
       </View>
       <ChevronRight color="rgba(155,93,229,0.4)" size={15} strokeWidth={2.4} />
+      </LiquidCard>
+    </Pressable>
+  );
+}
+
+function EmployeeDetailScreen({
+  color,
+  commission,
+  month,
+  onBack,
+  seller,
+  session,
+  sold,
+}: {
+  color: string;
+  commission: number;
+  month: ReturnType<typeof currentMonthRange>;
+  onBack: () => void;
+  seller: ApiProfile;
+  session: ReturnType<typeof useAuth>["session"];
+  sold: number;
+}) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [monthlySales, setMonthlySales] = useState<Sale[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+
+  const loadSales = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const query = new URLSearchParams({
+        from: month.from,
+        sellerId: seller.id,
+        to: month.to,
+      });
+      const chartFrom = startOfMonth(new Date(new Date(month.to).getFullYear(), new Date(month.to).getMonth() - 5, 1));
+      const chartQuery = new URLSearchParams({
+        from: chartFrom.toISOString(),
+        sellerId: seller.id,
+        to: month.to,
+      });
+      const [response, chartResponse] = await Promise.all([
+        apiRequest<SalesResponse>(`/sales?${query.toString()}`, { method: "GET", session }),
+        apiRequest<SalesResponse>(`/sales?${chartQuery.toString()}`, { method: "GET", session }),
+      ]);
+      setSales(response.items);
+      setMonthlySales(chartResponse.items);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "No se pudieron cargar las ventas");
+    } finally {
+      setLoading(false);
+    }
+  }, [month.from, month.to, seller.id, session]);
+
+  useEffect(() => {
+    loadSales();
+  }, [loadSales]);
+
+  const monthlyBars = useMemo<MonthlySaleBar[]>(() => {
+    const end = startOfMonth(new Date(month.to));
+    const buckets = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(end.getFullYear(), end.getMonth() - (5 - index), 1);
+
+      return {
+        amount: 0,
+        key: monthKey(date),
+        label: new Intl.DateTimeFormat("es-AR", { month: "short" }).format(date).replace(".", ""),
+      };
+    });
+    const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+
+    monthlySales.forEach((sale) => {
+      const bucket = byKey.get(monthKey(new Date(sale.saleDate)));
+
+      if (bucket) {
+        bucket.amount += sale.totalAmount;
+      }
+    });
+
+    return buckets.map(({ amount, label }) => ({ amount, label }));
+  }, [month.to, monthlySales]);
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.detailContent}
+      refreshControl={<RefreshControl refreshing={loading} tintColor={colors.violet} onRefresh={loadSales} />}
+    >
+      <View style={styles.detailHeader}>
+        <Pressable onPress={onBack} style={({ pressed }) => [styles.detailBackButton, pressed && styles.pressed]}>
+          <ChevronRight color={colors.violet} size={17} strokeWidth={2.6} style={styles.detailBackIcon} />
+        </Pressable>
+        <View style={styles.detailHeaderText}>
+          <Text numberOfLines={1} style={styles.detailTitle}>
+            {seller.fullName}
+          </Text>
+          <Text style={styles.detailSubtitle}>Ventas de {month.label}</Text>
+        </View>
+        <View style={[styles.detailAvatar, { backgroundColor: color }]}>
+          <Text style={styles.avatarText}>{getInitials(seller.fullName)}</Text>
+        </View>
+      </View>
+
+      <View style={styles.detailKpiGrid}>
+        <DetailMetric label="Total vendido" value={formatMoney(sold)} />
+        <DetailMetric label="Comision 15%" value={formatMoney(commission)} valueColor={color} />
+      </View>
+
+      <LiquidCard style={styles.detailStatusCard}>
+        <View style={[styles.detailStatusStripe, { backgroundColor: color }]} />
+        <View style={styles.detailStatusBody}>
+          <Text style={styles.detailStatusLabel}>Estado del perfil</Text>
+          <Text style={styles.detailStatusValue}>{seller.active ? "Activa" : "Inactiva"}</Text>
+          <Text style={styles.detailStatusText}>
+            {seller.active ? "Puede registrar ventas y aparece en los selectores." : "No aparece como vendedora activa para nuevas ventas."}
+          </Text>
+        </View>
+      </LiquidCard>
+
+      {errorMessage ? (
+        <LiquidCard style={styles.errorCard}>
+          <Text style={styles.errorTitle}>No se pudo cargar el detalle</Text>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </LiquidCard>
+      ) : null}
+
+      <View>
+        <SectionLabel>Ventas realizadas</SectionLabel>
+        <View style={styles.detailSalesList}>
+          {sales.map((sale) => (
+            <EmployeeSaleRow key={sale.id} color={color} sale={sale} />
+          ))}
+          {!loading && sales.length === 0 ? (
+            <LiquidCard style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No hay ventas registradas para esta empleada en el mes.</Text>
+            </LiquidCard>
+          ) : null}
+        </View>
+      </View>
+
+      <EmployeeMonthlyBarChart color={color} data={monthlyBars} />
+    </ScrollView>
+  );
+}
+
+function DetailMetric({ label, value, valueColor = colors.foreground }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <LiquidCard style={styles.detailMetric}>
+      <Text style={styles.detailMetricLabel}>{label}</Text>
+      <Text style={[styles.detailMetricValue, { color: valueColor }]}>{value}</Text>
     </LiquidCard>
+  );
+}
+
+function EmployeeSaleRow({ color, sale }: { color: string; sale: Sale }) {
+  return (
+    <LiquidCard style={styles.detailSaleCard}>
+      <View style={[styles.detailSaleStripe, { backgroundColor: color }]} />
+      <View style={styles.detailSaleBody}>
+        <View style={styles.detailSaleHeader}>
+          <Text numberOfLines={1} style={styles.detailSaleBuyer}>
+            {sale.buyerFullName}
+          </Text>
+          <Text style={styles.detailSaleTotal}>{formatMoney(sale.totalAmount)}</Text>
+        </View>
+        <Text numberOfLines={1} style={styles.detailSaleProducts}>
+          {sale.items.map((item) => item.productName).join(", ")}
+        </Text>
+        <View style={styles.detailSaleFooter}>
+          <Text style={styles.detailSaleDate}>{formatDate(sale.saleDate)}</Text>
+          <View style={[styles.paymentPill, { borderColor: `${paymentTones[sale.paymentStatus]}55` }]}>
+            <Text style={[styles.paymentPillText, { color: paymentTones[sale.paymentStatus] }]}>{paymentLabels[sale.paymentStatus]}</Text>
+          </View>
+        </View>
+      </View>
+    </LiquidCard>
+  );
+}
+
+function EmployeeMonthlyBarChart({ color, data }: { color: string; data: MonthlySaleBar[] }) {
+  const maxAmount = Math.max(...data.map((item) => item.amount), 1);
+
+  return (
+    <View>
+      <SectionLabel>Ventas por mes</SectionLabel>
+      <LiquidCard style={styles.monthlyChartCard}>
+        <View style={styles.monthlyChart}>
+          {data.map((item) => {
+            const height = Math.max(8, Math.round((item.amount / maxAmount) * 112));
+
+            return (
+              <View key={item.label} style={styles.monthlyBarItem}>
+                <Text numberOfLines={1} style={styles.monthlyBarValue}>
+                  {item.amount > 0 ? formatMoney(item.amount) : "$0"}
+                </Text>
+                <View style={styles.monthlyBarTrack}>
+                  <View style={[styles.monthlyBarFill, { backgroundColor: color, height }]} />
+                </View>
+                <Text style={styles.monthlyBarLabel}>{item.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </LiquidCard>
+    </View>
+  );
+}
+
+function OwnerMonthlyComparisonChart({ data }: { data: ComparisonSaleBar[] }) {
+  const maxAmount = Math.max(...data.map((item) => item.amount), 1);
+
+  return (
+    <View>
+      <SectionLabel>Ventas del mes</SectionLabel>
+      <LiquidCard style={styles.ownerComparisonCard}>
+        <View style={styles.ownerComparisonList}>
+          {data.map((item) => {
+            const height = Math.max(8, Math.round((item.amount / maxAmount) * 122));
+
+            return (
+              <View key={item.id} style={styles.ownerComparisonItem}>
+                <Text numberOfLines={1} style={styles.ownerComparisonAmount}>
+                  {formatMoney(item.amount)}
+                </Text>
+                <View style={styles.ownerComparisonTrack}>
+                  <View style={[styles.ownerComparisonFill, { backgroundColor: item.color, height }]} />
+                </View>
+                <View style={styles.ownerComparisonName}>
+                  <View style={[styles.ownerComparisonDot, { backgroundColor: item.color }]} />
+                  <Text numberOfLines={1} style={styles.ownerComparisonLabel}>
+                    {item.label}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </LiquidCard>
+    </View>
   );
 }
 
@@ -374,6 +999,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  sectionActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  addSellerButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 999,
+    height: 30,
+    justifyContent: "center",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    width: 30,
+  },
   employeeList: {
     gap: 12,
   },
@@ -382,6 +1024,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     padding: 16,
+  },
+  employeeCardInactive: {
+    opacity: 0.62,
   },
   avatar: {
     alignItems: "center",
@@ -430,6 +1075,62 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
+  ownerComparisonCard: {
+    padding: 16,
+  },
+  ownerComparisonList: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 186,
+  },
+  ownerComparisonItem: {
+    alignItems: "center",
+    flex: 1,
+    gap: 7,
+  },
+  ownerComparisonName: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    maxWidth: 64,
+  },
+  ownerComparisonDot: {
+    borderRadius: 999,
+    height: 7,
+    width: 7,
+  },
+  ownerComparisonLabel: {
+    color: "rgba(90,60,120,0.58)",
+    flexShrink: 1,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  ownerComparisonAmount: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: "900",
+    minHeight: 24,
+    textAlign: "center",
+  },
+  ownerComparisonTrack: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderColor: "rgba(255,255,255,0.58)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 128,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+    width: 18,
+  },
+  ownerComparisonFill: {
+    borderRadius: 999,
+    minHeight: 8,
+    opacity: 0.9,
+    width: "100%",
+  },
   emptyCard: {
     padding: 18,
   },
@@ -442,5 +1143,419 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     lineHeight: 19,
+  },
+  detailContent: {
+    gap: 22,
+    paddingBottom: 112,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  detailHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
+  detailBackButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.46)",
+    borderColor: "rgba(255,255,255,0.72)",
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  detailBackIcon: {
+    transform: [{ rotate: "180deg" }],
+  },
+  detailHeaderText: {
+    flex: 1,
+  },
+  detailTitle: {
+    color: colors.foreground,
+    fontSize: 20,
+    fontWeight: "900",
+    lineHeight: 24,
+  },
+  detailSubtitle: {
+    color: "rgba(90,60,120,0.5)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  detailAvatar: {
+    alignItems: "center",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    shadowColor: colors.violet,
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    width: 44,
+  },
+  detailKpiGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  detailMetric: {
+    flex: 1,
+    padding: 16,
+  },
+  detailMetricLabel: {
+    color: "rgba(90,60,120,0.5)",
+    fontSize: 11,
+    fontWeight: "900",
+    marginBottom: 7,
+    textTransform: "uppercase",
+  },
+  detailMetricValue: {
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  detailStatusCard: {
+    flexDirection: "row",
+    gap: 13,
+    padding: 16,
+  },
+  detailStatusStripe: {
+    borderRadius: 999,
+    width: 4,
+  },
+  detailStatusBody: {
+    flex: 1,
+  },
+  detailStatusLabel: {
+    color: "rgba(90,60,120,0.5)",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  detailStatusValue: {
+    color: colors.foreground,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  detailStatusText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  detailSalesList: {
+    gap: 12,
+  },
+  detailSaleCard: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  detailSaleStripe: {
+    borderRadius: 999,
+    width: 4,
+  },
+  detailSaleBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailSaleHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  detailSaleBuyer: {
+    color: colors.foreground,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  detailSaleTotal: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  detailSaleProducts: {
+    color: "rgba(90,60,120,0.56)",
+    fontSize: 12,
+    marginTop: 5,
+  },
+  detailSaleFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+  detailSaleDate: {
+    color: "rgba(90,60,120,0.45)",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  paymentPill: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  paymentPillText: {
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  monthlyChartCard: {
+    padding: 16,
+  },
+  monthlyChart: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 170,
+  },
+  monthlyBarItem: {
+    alignItems: "center",
+    flex: 1,
+    gap: 7,
+  },
+  monthlyBarValue: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: "900",
+    maxWidth: 50,
+    minHeight: 24,
+    textAlign: "center",
+  },
+  monthlyBarTrack: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.08)",
+    borderColor: "rgba(255,255,255,0.56)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 118,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+    width: 18,
+  },
+  monthlyBarFill: {
+    borderRadius: 999,
+    minHeight: 8,
+    opacity: 0.9,
+    width: "100%",
+  },
+  monthlyBarLabel: {
+    color: "rgba(90,60,120,0.55)",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalBackdrop: {
+    backgroundColor: "rgba(20,10,35,0.55)",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  sheet: {
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderColor: "rgba(255,255,255,0.88)",
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    borderWidth: 1,
+    maxHeight: "92%",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.18,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -12 },
+    elevation: 20,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    backgroundColor: "rgba(155,93,229,0.24)",
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 16,
+    width: 42,
+  },
+  sheetHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    color: colors.foreground,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  sheetSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  closeButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.12)",
+    borderColor: "rgba(155,93,229,0.18)",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  closeText: {
+    color: colors.violet,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  formContent: {
+    gap: 15,
+    paddingBottom: 28,
+  },
+  managerCreateButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 20,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 52,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 7 },
+  },
+  managerCreateText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  managerList: {
+    gap: 10,
+  },
+  managerItem: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderColor: "rgba(255,255,255,0.78)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 11,
+    minHeight: 58,
+    padding: 12,
+  },
+  managerItemInactive: {
+    opacity: 0.62,
+  },
+  managerAvatar: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  backToManagerButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 2,
+  },
+  backToManagerIcon: {
+    transform: [{ rotate: "180deg" }],
+  },
+  backToManagerText: {
+    color: colors.violet,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  formLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    marginBottom: 7,
+    textTransform: "uppercase",
+  },
+  formInput: {
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderColor: "rgba(255,255,255,0.78)",
+    borderRadius: 16,
+    borderWidth: 1,
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "700",
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  colorRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  colorSwatch: {
+    borderColor: "rgba(255,255,255,0.9)",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 34,
+    width: 34,
+  },
+  colorSwatchActive: {
+    borderColor: colors.foreground,
+    transform: [{ scale: 1.08 }],
+  },
+  activeToggle: {
+    alignItems: "center",
+    backgroundColor: "rgba(224,82,113,0.1)",
+    borderColor: "rgba(224,82,113,0.18)",
+    borderRadius: 18,
+    borderWidth: 1,
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  activeToggleOn: {
+    backgroundColor: "rgba(52,211,153,0.12)",
+    borderColor: "rgba(52,211,153,0.25)",
+  },
+  activeToggleText: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  activeToggleTextOn: {
+    color: colors.mint,
+  },
+  formError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  saveButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 20,
+    justifyContent: "center",
+    minHeight: 54,
+    shadowColor: colors.violet,
+    shadowOpacity: 0.38,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  saveButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  pressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.98 }],
   },
 });

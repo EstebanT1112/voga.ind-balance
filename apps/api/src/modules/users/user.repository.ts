@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { mapProfileRow } from "./user.mapper.js";
-import type { ApiProfile, ProfileRow, UserListFilters } from "./user.types.js";
+import type { ApiProfile, CreateUserData, ProfileRow, UpdateUserData, UserListFilters } from "./user.types.js";
 
 const profileSelect = "id, role, full_name, color, active, created_at, updated_at";
 
@@ -39,5 +39,44 @@ export const usersRepository = {
     }
 
     return data ? mapProfileRow(data) : null;
+  },
+
+  async createSellerProfile(id: string, data: Omit<CreateUserData, "email" | "password">): Promise<ApiProfile> {
+    const { data: profile, error } = await supabaseAdmin
+      .from("profiles")
+      .insert({
+        active: data.active ?? true,
+        color: data.color ?? null,
+        full_name: data.fullName.trim(),
+        id,
+        role: "seller",
+      })
+      .select(profileSelect)
+      .single<ProfileRow>();
+
+    if (error) {
+      throw error;
+    }
+
+    return mapProfileRow(profile);
+  },
+
+  async update(id: string, data: UpdateUserData): Promise<ApiProfile | null> {
+    const { data: profile, error } = await supabaseAdmin
+      .from("profiles")
+      .update({
+        ...(data.fullName !== undefined ? { full_name: data.fullName.trim() } : {}),
+        ...(data.color !== undefined ? { color: data.color } : {}),
+        ...(data.active !== undefined ? { active: data.active } : {}),
+      })
+      .eq("id", id)
+      .select(profileSelect)
+      .maybeSingle<ProfileRow>();
+
+    if (error) {
+      throw error;
+    }
+
+    return profile ? mapProfileRow(profile) : null;
   },
 };
