@@ -1,5 +1,6 @@
 import { HttpError } from "../../lib/http-error.js";
 import { expenseRepository } from "../expenses/expense.repository.js";
+import { PRODUCT_EXPENSE_CATEGORY, PRODUCT_EXPENSE_NOTE } from "../expenses/expense.types.js";
 import type { ApiProfile } from "../users/user.types.js";
 import { mapProductRow } from "./product.mapper.js";
 import { productRepository } from "./product.repository.js";
@@ -45,9 +46,9 @@ export const productService = {
       await expenseRepository.create(
         {
           amount: product.purchase_price,
-          category: "Productos",
+          category: PRODUCT_EXPENSE_CATEGORY,
           description: buildProductExpenseDescription(product),
-          note: "Generado automaticamente al cargar producto",
+          note: PRODUCT_EXPENSE_NOTE,
           spentAt: product.created_at,
         },
         profile.id,

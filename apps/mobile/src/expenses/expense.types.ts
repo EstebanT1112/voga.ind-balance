@@ -8,6 +8,7 @@ export interface Expense {
   note: string | null;
   createdAt: string;
   updatedAt: string;
+  isProductExpense: boolean;
 }
 
 export interface ExpensesResponse {

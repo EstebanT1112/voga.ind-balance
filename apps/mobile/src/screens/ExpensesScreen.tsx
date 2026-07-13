@@ -18,6 +18,7 @@ import {
   DollarSign,
   Megaphone,
   MoreHorizontal,
+  LockKeyhole,
   Package,
   Plus,
   ReceiptText,
@@ -29,7 +30,7 @@ import {
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useAuth } from "../auth/AuthProvider";
-import { GlassBadge, LiquidCard, SectionLabel } from "../components/Liquid";
+import { ErrorState, GlassBadge, LiquidCard, SectionLabel, SkeletonBlock, SkeletonGroup, SuccessToast } from "../components/Liquid";
 import type { CreateExpenseInput, Expense, ExpensesResponse } from "../expenses/expense.types";
 import { apiRequest } from "../lib/api";
 import { colors, formatMoney } from "../theme/liquid";
@@ -69,13 +70,16 @@ function formatDate(value: string): string {
 export function ExpensesScreen() {
   const { session } = useAuth();
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [form, setForm] = useState(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [successExpense, setSuccessExpense] = useState<Expense | null>(null);
 
   const total = useMemo(() => expenses.reduce((sum, expense) => sum + expense.amount, 0), [expenses]);
   const topCategory = useMemo(() => {
@@ -166,6 +170,7 @@ export function ExpensesScreen() {
       setExpenses((current) => [response.item, ...current]);
       setModalOpen(false);
       setForm(initialForm);
+      setSuccessExpense(response.item);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "No se pudo guardar el gasto");
     } finally {
@@ -173,22 +178,26 @@ export function ExpensesScreen() {
     }
   };
 
-  const deleteExpense = async (expenseId: string) => {
-    if (!session) {
+  const deleteExpense = async () => {
+    if (!session || !expenseToDelete) {
       return;
     }
 
+    setDeleting(true);
     setDeleteError(null);
 
     try {
-      await apiRequest(`/expenses/${expenseId}`, {
+      await apiRequest(`/expenses/${expenseToDelete.id}`, {
         method: "DELETE",
         session,
       });
 
-      setExpenses((current) => current.filter((expense) => expense.id !== expenseId));
+      setExpenses((current) => current.filter((expense) => expense.id !== expenseToDelete.id));
+      setExpenseToDelete(null);
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : "No se pudo borrar el gasto");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -209,6 +218,17 @@ export function ExpensesScreen() {
           </Pressable>
         </View>
 
+        {errorMessage && expenses.length === 0 ? (
+          <ErrorState
+            message={errorMessage}
+            onRetry={loadExpenses}
+            retrying={loading}
+            title="No se pudieron cargar los gastos"
+          />
+        ) : loading && expenses.length === 0 ? (
+          <ExpenseScreenSkeleton />
+        ) : (
+        <>
         <View style={styles.kpiGrid}>
           <LiquidCard style={styles.kpiCard}>
             <Text style={styles.kpiLabel}>Total cargado</Text>
@@ -223,10 +243,12 @@ export function ExpensesScreen() {
         </View>
 
         {errorMessage ? (
-          <LiquidCard style={styles.errorCard}>
-            <Text style={styles.errorTitle}>No se pudieron cargar los gastos</Text>
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          </LiquidCard>
+          <ErrorState
+            message={errorMessage}
+            onRetry={loadExpenses}
+            retrying={loading}
+            title="No se pudieron cargar los gastos"
+          />
         ) : null}
         {deleteError ? <Text style={styles.formError}>{deleteError}</Text> : null}
 
@@ -234,17 +256,22 @@ export function ExpensesScreen() {
           <SectionLabel>Registro</SectionLabel>
           <View style={styles.expenseList}>
             {expenses.map((expense) => (
-              <ExpenseCard key={expense.id} expense={expense} onDelete={() => deleteExpense(expense.id)} />
+              <ExpenseCard
+                key={expense.id}
+                expense={expense}
+                onDelete={expense.isProductExpense ? undefined : () => setExpenseToDelete(expense)}
+              />
             ))}
           </View>
-          {loading ? <ActivityIndicator color={colors.violet} /> : null}
-          {!loading && expenses.length === 0 ? (
+          {!loading && !errorMessage && expenses.length === 0 ? (
             <LiquidCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Sin gastos cargados</Text>
               <Text style={styles.emptyText}>Los gastos que cargues van a impactar en las analiticas.</Text>
             </LiquidCard>
           ) : null}
         </View>
+        </>
+        )}
       </ScrollView>
 
       <Modal animationType="slide" transparent visible={modalOpen} onRequestClose={closeModal}>
@@ -318,11 +345,91 @@ export function ExpensesScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={expenseToDelete !== null}
+        onRequestClose={() => !deleting && setExpenseToDelete(null)}
+      >
+        <View style={styles.confirmModalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => !deleting && setExpenseToDelete(null)} />
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIcon}>
+              <Trash2 color={colors.red} size={22} strokeWidth={2.4} />
+            </View>
+            <Text style={styles.confirmTitle}>Eliminar gasto</Text>
+            <Text style={styles.confirmText}>Esta accion no se puede deshacer.</Text>
+            {expenseToDelete ? (
+              <View style={styles.confirmSummary}>
+                <Text numberOfLines={2} style={styles.confirmExpenseName}>{expenseToDelete.description}</Text>
+                <Text style={styles.confirmExpenseAmount}>{formatMoney(expenseToDelete.amount)}</Text>
+              </View>
+            ) : null}
+            <View style={styles.confirmActions}>
+              <Pressable
+                disabled={deleting}
+                onPress={() => setExpenseToDelete(null)}
+                style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                disabled={deleting}
+                onPress={deleteExpense}
+                style={({ pressed }) => [styles.deleteConfirmButton, pressed && styles.pressed]}
+              >
+                {deleting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.deleteConfirmText}>Eliminar</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <SuccessToast
+        detail={successExpense ? `${successExpense.description} - ${formatMoney(successExpense.amount)}` : undefined}
+        onHidden={() => setSuccessExpense(null)}
+        title="Gasto registrado"
+        visible={successExpense !== null}
+      />
     </View>
   );
 }
 
-function ExpenseCard({ expense, onDelete }: { expense: Expense; onDelete: () => void }) {
+function ExpenseScreenSkeleton() {
+  return (
+    <SkeletonGroup style={styles.expenseSkeleton}>
+      <View style={styles.expenseSkeletonKpis}>
+        {Array.from({ length: 2 }, (_, index) => (
+          <View key={index} style={styles.expenseSkeletonKpi}>
+            <SkeletonBlock style={styles.expenseSkeletonLabel} />
+            <SkeletonBlock style={styles.expenseSkeletonValue} />
+          </View>
+        ))}
+      </View>
+
+      <SkeletonBlock style={styles.expenseSkeletonSection} />
+      {Array.from({ length: 4 }, (_, index) => (
+        <View key={index} style={styles.expenseSkeletonCard}>
+          <SkeletonBlock style={styles.expenseSkeletonIcon} />
+          <View style={styles.expenseSkeletonBody}>
+            <SkeletonBlock style={styles.expenseSkeletonTitle} />
+            <View style={styles.expenseSkeletonMetaRow}>
+              <SkeletonBlock style={styles.expenseSkeletonBadge} />
+              <SkeletonBlock style={styles.expenseSkeletonDate} />
+            </View>
+          </View>
+          <View style={styles.expenseSkeletonRight}>
+            <SkeletonBlock style={styles.expenseSkeletonAmount} />
+            <SkeletonBlock style={styles.expenseSkeletonAction} />
+          </View>
+        </View>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
+function ExpenseCard({ expense, onDelete }: { expense: Expense; onDelete?: () => void }) {
   const { color, Icon } = getExpenseCategoryConfig(expense.category);
 
   return (
@@ -336,18 +443,25 @@ function ExpenseCard({ expense, onDelete }: { expense: Expense; onDelete: () => 
         </Text>
         <View style={styles.expenseMeta}>
           <GlassBadge label={expense.category} tone={color} />
+          {expense.isProductExpense ? <GlassBadge label="Automatico" tone={colors.violet} /> : null}
           <View style={styles.datePill}>
             <CalendarDays color={colors.faint} size={12} strokeWidth={2.4} />
             <Text style={styles.dateText}>{formatDate(expense.spentAt)}</Text>
           </View>
         </View>
-        {expense.note ? <Text style={styles.expenseNote}>{expense.note}</Text> : null}
+        {expense.note && !expense.isProductExpense ? <Text style={styles.expenseNote}>{expense.note}</Text> : null}
       </View>
       <View style={styles.expenseRight}>
         <Text style={styles.expenseAmount}>{formatMoney(expense.amount)}</Text>
-        <Pressable onPress={onDelete} style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}>
-          <Trash2 color={colors.red} size={16} strokeWidth={2.3} />
-        </Pressable>
+        {onDelete ? (
+          <Pressable onPress={onDelete} style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}>
+            <Trash2 color={colors.red} size={16} strokeWidth={2.3} />
+          </Pressable>
+        ) : (
+          <View style={styles.lockedExpense}>
+            <LockKeyhole color={colors.violet} size={15} strokeWidth={2.4} />
+          </View>
+        )}
       </View>
     </LiquidCard>
   );
@@ -423,6 +537,86 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 6,
   },
+  expenseSkeleton: {
+    gap: 12,
+  },
+  expenseSkeletonKpis: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  expenseSkeletonKpi: {
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    flex: 1,
+    padding: 16,
+  },
+  expenseSkeletonLabel: {
+    height: 10,
+    width: "62%",
+  },
+  expenseSkeletonValue: {
+    height: 19,
+    marginTop: 9,
+    width: "82%",
+  },
+  expenseSkeletonSection: {
+    height: 10,
+    marginBottom: 1,
+    marginTop: 5,
+    width: 68,
+  },
+  expenseSkeletonCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderColor: "rgba(255,255,255,0.68)",
+    borderRadius: 28,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 78,
+    padding: 14,
+  },
+  expenseSkeletonIcon: {
+    borderRadius: 16,
+    height: 44,
+    width: 44,
+  },
+  expenseSkeletonBody: {
+    flex: 1,
+    gap: 9,
+  },
+  expenseSkeletonTitle: {
+    height: 13,
+    width: "72%",
+  },
+  expenseSkeletonMetaRow: {
+    flexDirection: "row",
+    gap: 7,
+  },
+  expenseSkeletonBadge: {
+    height: 19,
+    width: 64,
+  },
+  expenseSkeletonDate: {
+    height: 11,
+    marginTop: 4,
+    width: 46,
+  },
+  expenseSkeletonRight: {
+    alignItems: "flex-end",
+    gap: 9,
+  },
+  expenseSkeletonAmount: {
+    height: 16,
+    width: 68,
+  },
+  expenseSkeletonAction: {
+    borderRadius: 999,
+    height: 30,
+    width: 30,
+  },
   expenseList: { gap: 12 },
   expenseCard: {
     alignItems: "center",
@@ -483,6 +677,109 @@ const styles = StyleSheet.create({
     height: 30,
     justifyContent: "center",
     width: 30,
+  },
+  lockedExpense: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.1)",
+    borderRadius: 999,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  confirmModalRoot: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 26,
+  },
+  confirmCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderColor: "rgba(255,255,255,0.9)",
+    borderRadius: 28,
+    borderWidth: 1,
+    elevation: 22,
+    padding: 24,
+    shadowColor: colors.violet,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.24,
+    shadowRadius: 30,
+    width: "100%",
+  },
+  confirmIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(224,82,113,0.12)",
+    borderRadius: 999,
+    height: 52,
+    justifyContent: "center",
+    marginBottom: 13,
+    width: 52,
+  },
+  confirmTitle: {
+    color: colors.foreground,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  confirmText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 5,
+    textAlign: "center",
+  },
+  confirmSummary: {
+    alignItems: "center",
+    backgroundColor: "rgba(224,82,113,0.07)",
+    borderColor: "rgba(224,82,113,0.14)",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 18,
+    padding: 14,
+    width: "100%",
+  },
+  confirmExpenseName: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  confirmExpenseAmount: {
+    color: colors.red,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+    width: "100%",
+  },
+  cancelButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(155,93,229,0.09)",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  cancelButtonText: {
+    color: colors.violet,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  deleteConfirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.red,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  deleteConfirmText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "900",
   },
   errorCard: {
     borderColor: "rgba(224,82,113,0.24)",
